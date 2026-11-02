@@ -1,0 +1,59 @@
+{
+  "description": "Scans simulés, salle 8 m x 6 m, pose vraie connue",
+  "scans": [
+    {
+      "file": "scan_01.csv",
+      "scene": "A",
+      "truePose": {
+        "x": 3.4,
+        "y": 3,
+        "theta": 0
+      }
+    },
+    {
+      "file": "scan_02.csv",
+      "scene": "A",
+      "truePose": {
+        "x": 5.8,
+        "y": 3.1,
+        "theta": 15
+      }
+    },
+    {
+      "file": "scan_03.csv",
+      "scene": "A",
+      "truePose": {
+        "x": 7.2,
+        "y": 1.2,
+        "theta": 90
+      }
+    },
+    {
+      "file": "scan_04.csv",
+      "scene": "A",
+      "truePose": {
+        "x": 0.9,
+        "y": 2.9,
+        "theta": -30
+      }
+    },
+    {
+      "file": "scan_05.csv",
+      "scene": "B",
+      "truePose": {
+        "x": 1,
+        "y": 0.8,
+        "theta": 45
+      }
+    },
+    {
+      "file": "scan_06.csv",
+      "scene": "B",
+      "truePose": {
+        "x": 5,
+        "y": 0.8,
+        "theta": 180
+      }
+    }
+  ]
+}

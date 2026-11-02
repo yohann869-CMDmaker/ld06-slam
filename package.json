@@ -1,0 +1,16 @@
+{
+  "name": "ld06-slam",
+  "version": "0.1.0",
+  "description": "Cartographie et localisation 2D à partir du lidar LD06 (grid map, carte vectorielle, scan matching)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "serve": "node serve.mjs",
+    "test": "node --test test/",
+    "gen:sim": "node scripts/gen-sim.mjs",
+    "maps": "node scripts/build-maps.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -6,7 +6,7 @@ grid map, carte vectorielle, puis (jours 2 et 3) scan matching et SLAM.
 
 ## Prérequis
 
-- Node.js 18 ou plus (testé avec Node 24). Aucune dépendance à installer.
+- Node.js 22 ou plus (testé avec Node 24). Aucune dépendance à installer.
 - Un navigateur récent (Chrome, Edge, Firefox).
 
 ## Lancer
@@ -20,7 +20,7 @@ Puis ouvrir http://localhost:8080/ dans le navigateur.
 ## Tests
 
 ```bash
-node --test test/
+node --test "test/*.test.js"
 ```
 
 ## Structure

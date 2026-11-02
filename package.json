@@ -6,11 +6,11 @@
   "private": true,
   "scripts": {
     "serve": "node serve.mjs",
-    "test": "node --test test/",
+    "test": "node --test \"test/*.test.js\"",
     "gen:sim": "node scripts/gen-sim.mjs",
     "maps": "node scripts/build-maps.mjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   }
 }

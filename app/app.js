@@ -297,7 +297,9 @@ function onUsbLine(line) {
   } else if (line.startsWith('# LD06 ready')) {
     usbStatus('Robot prêt');
   } else if (line.startsWith('# info')) {
-    usbStatus(`Robot prêt : ${line.slice(7)}`);
+    usbStatus(line.includes('scans=0') ? `Le lidar n'envoie aucun scan : ${line.slice(7)}` : `Robot prêt : ${line.slice(7)}`);
+  } else if (line.startsWith('# raw')) {
+    usbStatus(`Diagnostic : ${line.slice(6)}`);
   }
   // autres lignes (messages de démarrage de l'ESP32) : ignorées
 }

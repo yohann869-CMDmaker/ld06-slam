@@ -19,6 +19,7 @@
 //  Commandes (depuis l'application ou le moniteur série à 115200 bauds) :
 //    s : envoyer un scan
 //    i : informations (vitesse de rotation, points par tour, erreurs CRC)
+//    r : diagnostic, octets bruts reçus du lidar en 300 ms
 // ============================================================================
 
 #include "ld06.h"
@@ -56,7 +57,7 @@ bool waitFreshScan(uint32_t timeoutMs) {
 }
 
 void sendScan() {
-  if (!waitFreshScan(1000)) {
+  if (!waitFreshScan(2000)) {
     Serial.println(F("# error aucun scan complet recu du lidar (cablage, alimentation ?)"));
     return;
   }
@@ -91,11 +92,44 @@ void sendInfo() {
   Serial.println(scanCount);
 }
 
+// Diagnostic : lit directement les octets reçus du lidar pendant 300 ms, sans la librairie.
+// Attendu : ~5300 octets et ~110 débuts de trame "54 2C". 0 octet : le lidar n'envoie rien
+// (alimentation, connecteur, fil TX -> GPIO33).
+void sendRaw() {
+  uint32_t bytes = 0;
+  uint32_t headers = 0;
+  uint8_t first[16];
+  uint8_t nFirst = 0;
+  uint8_t prev = 0;
+  const uint32_t t0 = millis();
+  while (millis() - t0 < 300) {
+    while (Serial2.available()) {
+      const uint8_t b = Serial2.read();
+      if (nFirst < sizeof(first)) first[nFirst++] = b;
+      if (prev == 0x54 && b == 0x2C) headers++;
+      prev = b;
+      bytes++;
+    }
+  }
+  Serial.print(F("# raw octets="));
+  Serial.print(bytes);
+  Serial.print(F(" en_tetes="));
+  Serial.print(headers);
+  Serial.print(F(" debut="));
+  for (uint8_t i = 0; i < nFirst; i++) {
+    if (first[i] < 0x10) Serial.print('0');
+    Serial.print(first[i], HEX);
+    Serial.print(' ');
+  }
+  Serial.println();
+}
+
 void loop() {
   if (ld06.readScan()) scanCount++;
   while (Serial.available()) {
     const char c = Serial.read();
     if (c == 's') sendScan();
     else if (c == 'i') sendInfo();
+    else if (c == 'r') sendRaw();
   }
 }

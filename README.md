@@ -50,7 +50,8 @@ chargent pas depuis `file://`).
    rechargent avec **Ouvrir des scans…** en gardant leurs poses.
 
 Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
-`s` envoie un scan, `i` affiche la vitesse, le nombre de points et les erreurs CRC.
+`s` envoie un scan, `i` affiche la vitesse, le nombre de points et les erreurs CRC,
+`r` compte les octets bruts reçus du lidar en 300 ms (diagnostic de câblage ou d'alimentation).
 
 ## Ligne de commande
 

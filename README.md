@@ -30,6 +30,28 @@ chargent pas depuis `file://`).
 4. **Carte vectorielle** : mêmes actions ; export/import TXT (`x1,y1,x2,y2`), carte de
    référence en pointillés (par ex. `data/sim/scene_A.txt` ou une scène MapTool).
 
+## Acquisition des scans par USB
+
+1. Dans l'IDE Arduino (librairie `LD06.zip` installée, carte « ESP32 Dev Module »), téléverser
+   [`firmware/ESP32_LD06_Capture/ESP32_LD06_Capture.ino`](firmware/ESP32_LD06_Capture/ESP32_LD06_Capture.ino).
+   Même câblage que `ESP32_LD06_Test.ino` : TX du lidar sur GPIO33, PWM sur GPIO32.
+2. **Fermer le moniteur série de l'IDE** (le port USB ne peut être ouvert que par un programme).
+3. Dans l'application ouverte avec **Chrome ou Edge**, cliquer sur **Connecter le robot (USB)**
+   et choisir le port de l'ESP32. La ligne d'état affiche la vitesse du lidar et le nombre de
+   points par tour.
+4. Poser le robot, ne plus le toucher, cliquer sur **Capturer un scan**. Recommencer après
+   chaque déplacement (0,5 à 1 m, moins de 45° de rotation entre deux scans).
+5. Le premier scan est la référence, en pose (0, 0, 0). Chaque nouveau scan part de la pose
+   du scan sélectionné : le recaler à la main (glisser, Maj + glisser, flèches, Q/A et E)
+   jusqu'à ce que ses murs se superposent aux précédents. Sa pose x, y, θ est alors lue
+   dans l'éditeur de pose.
+6. **Enregistrer tous les scans…** écrit chaque scan avec sa pose dans un dossier
+   (par exemple `data/real/`) ainsi qu'un récapitulatif `poses.csv`. Les fichiers se
+   rechargent avec **Ouvrir des scans…** en gardant leurs poses.
+
+Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
+`s` envoie un scan, `i` affiche la vitesse, le nombre de points et les erreurs CRC.
+
 ## Ligne de commande
 
 ```bash

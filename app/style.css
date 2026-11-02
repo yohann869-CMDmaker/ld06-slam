@@ -82,6 +82,10 @@ button:hover, .btn:hover { border-color: #b9c1bc; background: #eef1ee; }
 .hint, .stat, .empty { color: var(--muted); font-size: 11.5px; margin: 6px 0 0; line-height: 1.45; }
 .stat:empty { display: none; }
 
+.usb { margin-top: 8px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: var(--radius); }
+.usb .row { margin: 0; }
+button:disabled { opacity: 0.5; cursor: default; }
+
 #scanList { list-style: none; margin: 8px 0 0; padding: 0; }
 #scanList li {
   display: grid;

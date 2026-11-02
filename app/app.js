@@ -1,7 +1,7 @@
 // Application web : affichage de plusieurs scans, poses modifiables,
 // construction et mise à jour d'une grid map et d'une carte vectorielle.
 import { DEG, normalizeAngleDeg, transformPoints } from '../src/core/pose.js';
-import { parseScanCSV, scanToLocalXY, serializeScanCSV } from '../src/core/scan.js';
+import { parseScanCSV, scanToLocalXY, serializeScanCSV, validPoints } from '../src/core/scan.js';
 import { GridMap, gridFromScan, occupancyRGB } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { extractSegments } from '../src/core/segmentation.js';
@@ -208,6 +208,159 @@ async function loadSimulated() {
     toast(`${index.scans.length} scans simulés chargés (référence : scene_A.txt, masquée)`);
   } catch (err) {
     toast(`Chargement impossible : ${err.message}`);
+  }
+}
+
+// ------------------------------------------------------------------ acquisition USB (Web Serial)
+// Dialogue avec firmware/ESP32_LD06_Capture : 's' demande un scan, renvoyé entre
+// "# LD06 scan ..." et "# end" ; 'i' renvoie une ligne "# info ...".
+
+const usb = { port: null, reader: null, writer: null, loop: null, buffer: '', block: null, waiting: null };
+
+function usbStatus(msg) {
+  $('usbStat').textContent = msg;
+}
+
+function usbSend(text) {
+  return usb.writer.write(new TextEncoder().encode(text));
+}
+
+async function usbConnect() {
+  if (usb.port) return usbDisconnect();
+  if (!('serial' in navigator)) return toast('Acquisition USB : ouvrir l\'application dans Chrome ou Edge (Web Serial)');
+  try {
+    usb.port = await navigator.serial.requestPort();
+    await usb.port.open({ baudRate: 115200 });
+  } catch (err) {
+    usb.port = null;
+    if (err.name !== 'NotFoundError') toast(`Connexion impossible : ${err.message}`);
+    return;
+  }
+  usb.writer = usb.port.writable.getWriter();
+  usb.loop = usbReadLoop();
+  $('usbConnect').textContent = 'Déconnecter';
+  $('usbCapture').disabled = false;
+  usbStatus('Connecté, attente du robot…');
+  // L'ESP32 redémarre souvent à l'ouverture du port : on demande l'état après son démarrage.
+  setTimeout(() => usb.writer && usbSend('i'), 2000);
+}
+
+async function usbDisconnect() {
+  try {
+    await usb.reader?.cancel();
+    await usb.loop;
+    usb.writer?.releaseLock();
+    await usb.port?.close();
+  } catch {
+    // port déjà fermé (câble débranché)
+  }
+  Object.assign(usb, { port: null, reader: null, writer: null, loop: null, buffer: '', block: null });
+  $('usbConnect').textContent = 'Connecter le robot (USB)';
+  $('usbCapture').disabled = true;
+  usbStatus('Déconnecté');
+}
+
+async function usbReadLoop() {
+  const decoder = new TextDecoder();
+  usb.reader = usb.port.readable.getReader();
+  try {
+    for (;;) {
+      const { value, done } = await usb.reader.read();
+      if (done) break;
+      usb.buffer += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = usb.buffer.indexOf('\n')) >= 0) {
+        const line = usb.buffer.slice(0, nl).replace(/\r$/, '');
+        usb.buffer = usb.buffer.slice(nl + 1);
+        onUsbLine(line);
+      }
+    }
+  } catch (err) {
+    toast(`Liaison USB interrompue : ${err.message}`);
+  } finally {
+    usb.reader.releaseLock();
+  }
+}
+
+function onUsbLine(line) {
+  if (line.startsWith('# LD06 scan')) {
+    usb.block = [line];
+  } else if (usb.block) {
+    usb.block.push(line);
+    if (line.startsWith('# end')) {
+      const text = usb.block.join('\n');
+      usb.block = null;
+      usb.waiting?.resolve(text);
+    }
+  } else if (line.startsWith('# error')) {
+    usb.waiting?.reject(new Error(line.slice(8)));
+  } else if (line.startsWith('# LD06 ready')) {
+    usbStatus('Robot prêt');
+  } else if (line.startsWith('# info')) {
+    usbStatus(`Robot prêt : ${line.slice(7)}`);
+  }
+  // autres lignes (messages de démarrage de l'ESP32) : ignorées
+}
+
+/** Nom de fichier horodaté : pas d'écrasement d'une séance de TP à l'autre. */
+function captureName() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `scan_${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.csv`;
+}
+
+async function usbCapture() {
+  if (!usb.writer || usb.waiting) return;
+  $('usbCapture').disabled = true;
+  usbStatus('Capture en cours…');
+  let timer;
+  try {
+    const text = await new Promise((resolve, reject) => {
+      usb.waiting = { resolve, reject };
+      timer = setTimeout(() => reject(new Error('pas de réponse du robot (programme ESP32_LD06_Capture téléversé ?)')), 5000);
+      usbSend('s').catch(reject);
+    });
+    const scan = parseScanCSV(text, captureName());
+    const first = state.scans.length === 0;
+    // Le robot a peu bougé depuis la capture précédente : on part de la pose du scan
+    // sélectionné, il ne reste qu'à recaler.
+    const ref = state.selected;
+    const entry = addScan(scan);
+    if (ref) entry.pose = { ...ref.pose };
+    select(entry);
+    if (first) fitView();
+    usbStatus(`${scan.name} : ${validPoints(scan, filterOpts()).length} points valides · ${scan.comments[0].replace('LD06 scan ', '')}`);
+  } catch (err) {
+    usbStatus(`Échec de la capture : ${err.message}`);
+  } finally {
+    clearTimeout(timer);
+    usb.waiting = null;
+    $('usbCapture').disabled = !usb.writer;
+  }
+}
+
+/** Enregistre chaque scan avec sa pose actuelle, plus un récapitulatif poses.csv. */
+async function saveAll() {
+  if (!state.scans.length) return toast('Aucun scan à enregistrer');
+  const files = state.scans.map((e) => ({ name: e.name.replace(/\.(csv|txt)$/i, '') + '.csv', text: serializeScanCSV(e.scan, e.pose) }));
+  files.push({
+    name: 'poses.csv',
+    text: ['scan,x_m,y_m,theta_deg', ...state.scans.map((e) => `${e.name},${e.pose.x.toFixed(4)},${e.pose.y.toFixed(4)},${e.pose.theta.toFixed(2)}`)].join('\n') + '\n',
+  });
+  if (!window.showDirectoryPicker) {
+    for (const f of files) download(f.name, f.text, 'text/csv');
+    return;
+  }
+  try {
+    const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
+    for (const f of files) {
+      const w = await (await dir.getFileHandle(f.name, { create: true })).createWritable();
+      await w.write(f.text);
+      await w.close();
+    }
+    toast(`${files.length} fichiers enregistrés dans « ${dir.name} »`);
+  } catch (err) {
+    if (err.name !== 'AbortError') toast(`Enregistrement impossible : ${err.message}`);
   }
 }
 
@@ -599,6 +752,12 @@ $('fileScans').onchange = (ev) => {
   ev.target.value = '';
 };
 $('btnSim').onclick = loadSimulated;
+$('usbConnect').onclick = usbConnect;
+$('usbCapture').onclick = usbCapture;
+$('btnSaveAll').onclick = saveAll;
+navigator.serial?.addEventListener('disconnect', (ev) => {
+  if (ev.target === usb.port) usbDisconnect();
+});
 $('btnFit').onclick = fitView;
 $('btnShot').onclick = () => canvas.toBlob((b) => download('capture.png', b));
 

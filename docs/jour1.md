@@ -57,10 +57,26 @@ premier angle aléatoire, bruit gaussien σ = 1 cm (hypothèse), 1 % de mesures 
 un bureau, un poteau, une armoire, une porte, et un carton présent dans les scans 1 à 4 puis
 retiré pour les scans 5 et 6 (test de la gestion des objets déplacés).
 
-**À faire sur le robot.** Acquérir une série de scans dans la salle, robot immobile, en
-relevant chaque pose au mètre ruban depuis un coin de référence. Noter l'incertitude de ces
-poses (ordre de grandeur : ±2 cm, ±2°). Vérifier d'abord l'orientation avec une boîte posée
-à 50 cm devant le robot (elle doit apparaître vers 0°) puis à sa gauche (vers 90°).
+**Acquisition par USB** (`firmware/ESP32_LD06_Capture`). Le programme de test fourni envoie
+chaque tour au format Teleplot en continu. Cela pose deux problèmes :
+- les x/y Teleplot sont en miroir ;
+- la liaison USB à 115 200 bauds est plus lente que le lidar, donc des octets du lidar sont
+  perdus pendant chaque envoi.
+
+Le programme de capture, dérivé du test (même câblage), lit le lidar en continu et n'envoie
+un scan que sur demande (caractère `s`). Il attend deux tours complets lus sans interruption,
+puis renvoie le dernier au format CSV `angle_deg,distance_m,intensity`, avec la vitesse de
+rotation et le compteur d'erreurs CRC en commentaire. Dans l'application, le bouton
+**Capturer un scan** dialogue avec l'ESP32 par l'API Web Serial (Chrome, Edge). Le scan
+capturé part de la pose du scan sélectionné, puisque le robot a peu bougé.
+
+**Poses sans instrument de mesure.** Le premier scan définit le repère : origine à la
+position du robot, axe X dans la direction où il regarde. Chaque scan suivant est recalé à
+la main sur les précédents dans l'outil de visualisation, et sa pose est lue une fois les
+murs superposés. Pour l'incertitude de ces poses de référence, un même scan est recalé
+deux fois en partant de zéro et l'écart obtenu est noté. Avant la campagne, vérifier
+l'orientation avec une boîte posée à 50 cm devant le robot (elle doit apparaître vers 0°),
+puis à sa gauche (vers 90°).
 
 ## 2. Visualisation des nuages de points
 

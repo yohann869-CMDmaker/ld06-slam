@@ -51,6 +51,28 @@ test('capture série de la librairie LD06 : mm -> m et premier scan seulement', 
   assert.equal(s.poseFound, false);
 });
 
+test('bloc envoyé par firmware/ESP32_LD06_Capture : lu comme un CSV RobotControl sans pose', () => {
+  const block = [
+    '# LD06 scan n=3 speed=3602deg/s crc_errors=0',
+    'angle_deg,distance_m,intensity',
+    '359.62,1.234,212',
+    '358.80,0.000,0',
+    '357.98,1.240,208',
+    '# end',
+  ].join('\n');
+  const s = parseScanCSV(block, 'usb');
+  assert.equal(s.format, 'robotcontrol');
+  assert.equal(s.poseFound, false);
+  assert.deepEqual(s.pose, { x: 0, y: 0, theta: 0 });
+  assert.equal(s.points.length, 3);
+  assert.equal(validPoints(s).length, 2);
+  assert.equal(s.comments[0], 'LD06 scan n=3 speed=3602deg/s crc_errors=0');
+  // relu après enregistrement avec une pose recalée à la main
+  const back = parseScanCSV(serializeScanCSV(s, { x: 0.42, y: -0.1, theta: 12.5 }));
+  assert.deepEqual(back.pose, { x: 0.42, y: -0.1, theta: 12.5 });
+  assert.deepEqual(back.points, s.points);
+});
+
 test('validPoints rejette r = 0 et les intensités trop faibles', () => {
   const s = parseScanCSV(ROBOTCONTROL);
   assert.equal(validPoints(s).length, 3);

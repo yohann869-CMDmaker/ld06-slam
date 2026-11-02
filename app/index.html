@@ -19,8 +19,18 @@
         <label class="btn primary">Ouvrir des scans…<input type="file" id="fileScans" multiple accept=".csv,.txt" hidden></label>
         <button id="btnSim">Jeu simulé</button>
       </div>
+      <div class="usb">
+        <div class="row">
+          <button id="usbConnect">Connecter le robot (USB)</button>
+          <button id="usbCapture" disabled>Capturer un scan</button>
+        </div>
+        <p class="hint" id="usbStat">Programme firmware/ESP32_LD06_Capture sur l'ESP32, moniteur série Arduino fermé, Chrome ou Edge.</p>
+      </div>
       <ul id="scanList"></ul>
-      <p class="empty" id="scanEmpty">Aucun scan. Ouvrir des CSV (RobotControl, MapTool, capture série) ou les déposer sur la carte.</p>
+      <p class="empty" id="scanEmpty">Aucun scan. Capturer, ouvrir des CSV (RobotControl, MapTool, capture série) ou les déposer sur la carte.</p>
+      <div class="row">
+        <button id="btnSaveAll" title="Chaque scan avec sa pose actuelle, plus poses.csv">Enregistrer tous les scans…</button>
+      </div>
 
       <div id="poseEditor" hidden>
         <div class="pose-title">Pose de <strong id="poseName"></strong></div>

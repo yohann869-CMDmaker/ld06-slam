@@ -57,7 +57,22 @@ premier angle aléatoire, bruit gaussien σ = 1 cm (hypothèse), 1 % de mesures 
 un bureau, un poteau, une armoire, une porte, et un carton présent dans les scans 1 à 4 puis
 retiré pour les scans 5 et 6 (test de la gestion des objets déplacés).
 
-**Acquisition par USB** (`firmware/ESP32_LD06_Capture`). Le programme de test fourni envoie
+**Acquisition avec le programme de test** (`ESP32_LD06_Test.ino`). Sa sortie Teleplot
+(`>lidar:x:y;…|xy`, x et y en mm) est collée directement dans l'application. Deux corrections
+sont nécessaires :
+
+- la librairie calcule `y = −d·sin(angle)` alors que l'angle est déjà antihoraire : le nuage
+  est en miroir, et le lecteur rétablit `y = +d·sin(angle)` ;
+- des trames sont perdues pendant l'envoi du texte. Sur un tour réel de la salle, 508 points
+  ont été reçus avec un pas de 0,45° (environ 800 points attendus par tour), et le plus grand
+  trou fait 74°. Comme le robot est immobile, les dernières lignes prises depuis la même
+  position sont fusionnées. Une ligne dont l'écart médian au dernier tour dépasse 5 cm a été
+  prise avant un déplacement : elle est écartée.
+
+Le même tour a donné 37 segments, avec un écart quadratique de 6 à 12 mm autour des droites
+ajustées. C'est le bruit réel du LD06, contre 1 cm supposé dans la simulation.
+
+**Variante sans perte : capture USB à la demande** (`firmware/ESP32_LD06_Capture`). Le programme de test fourni envoie
 chaque tour au format Teleplot en continu. Cela pose deux problèmes :
 - les x/y Teleplot sont en miroir ;
 - la liaison USB à 115 200 bauds est plus lente que le lidar, donc des octets du lidar sont

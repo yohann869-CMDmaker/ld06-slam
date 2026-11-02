@@ -304,6 +304,34 @@ function onUsbLine(line) {
   // autres lignes (messages de démarrage de l'ESP32) : ignorées
 }
 
+/**
+ * Ajoute un scan acquis à l'instant (capture USB ou collage). Le robot a peu bougé
+ * depuis le scan précédent : le nouveau part de la pose du scan sélectionné, il ne
+ * reste qu'à le recaler. Le premier scan reste en (0, 0, 0) et définit le repère.
+ */
+function addLiveScan(scan) {
+  const first = state.scans.length === 0;
+  const ref = state.selected;
+  const entry = addScan(scan);
+  if (ref) entry.pose = { ...ref.pose };
+  select(entry);
+  if (first) fitView();
+  return entry;
+}
+
+/** Texte collé (moniteur série, Teleplot ou CSV) -> nouveau scan. */
+function addPastedText(text) {
+  const scan = parseScanCSV(text, captureName());
+  const n = validPoints(scan, filterOpts()).length;
+  if (n < 10) {
+    toast('Aucun scan reconnu dans le texte collé (lignes >lidar:…|xy ou CSV attendues)');
+    return;
+  }
+  addLiveScan(scan);
+  const tours = scan.mergedLines > 1 ? ` (${scan.mergedLines} tours fusionnés)` : '';
+  toast(`${scan.name} ajouté : ${n} points valides${tours}`);
+}
+
 /** Nom de fichier horodaté : pas d'écrasement d'une séance de TP à l'autre. */
 function captureName() {
   const d = new Date();
@@ -323,14 +351,7 @@ async function usbCapture() {
       usbSend('s').catch(reject);
     });
     const scan = parseScanCSV(text, captureName());
-    const first = state.scans.length === 0;
-    // Le robot a peu bougé depuis la capture précédente : on part de la pose du scan
-    // sélectionné, il ne reste qu'à recaler.
-    const ref = state.selected;
-    const entry = addScan(scan);
-    if (ref) entry.pose = { ...ref.pose };
-    select(entry);
-    if (first) fitView();
+    addLiveScan(scan);
     usbStatus(`${scan.name} : ${validPoints(scan, filterOpts()).length} points valides · ${scan.comments[0].replace('LD06 scan ', '')}`);
   } catch (err) {
     usbStatus(`Échec de la capture : ${err.message}`);
@@ -757,6 +778,24 @@ $('btnSim').onclick = loadSimulated;
 $('usbConnect').onclick = usbConnect;
 $('usbCapture').onclick = usbCapture;
 $('btnSaveAll').onclick = saveAll;
+$('btnPaste').onclick = () => {
+  $('pasteText').value = '';
+  $('pasteDialog').showModal();
+  $('pasteText').focus();
+};
+$('pasteOk').onclick = (ev) => {
+  ev.preventDefault();
+  $('pasteDialog').close();
+  if ($('pasteText').value.trim()) addPastedText($('pasteText').value);
+};
+// Ctrl+V n'importe où hors des champs de saisie : ajoute directement le scan collé.
+document.addEventListener('paste', (ev) => {
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName) || $('pasteDialog').open) return;
+  const text = ev.clipboardData?.getData('text');
+  if (!text) return;
+  ev.preventDefault();
+  addPastedText(text);
+});
 navigator.serial?.addEventListener('disconnect', (ev) => {
   if (ev.target === usb.port) usbDisconnect();
 });

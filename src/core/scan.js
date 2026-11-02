@@ -10,7 +10,8 @@
 // - RobotControl : angle_deg,distance_m,intensity
 // - MapTool      : angle_deg,r_m,x_rel_m,y_rel_m
 // - Librairie LD06 (printScanCSV, capture du moniteur série) : N,Angle(°),Distance(mm),Intensity,x(mm),y(mm)
-// Dans les trois cas l'angle est déjà antihoraire : la librairie LD06 a converti
+// - Teleplot (programme de test ESP32_LD06_Test) : >lidar:x:y;x:y;...|xy, x et y en mm
+// Dans les trois premiers cas l'angle est déjà antihoraire : la librairie LD06 a converti
 // l'angle horaire du capteur avec 360 - angle.
 
 import { DEG, transformPoints } from './pose.js';
@@ -49,11 +50,76 @@ function isMillimetres(col) {
   return col.includes('mm');
 }
 
+/** Une ligne Teleplot "x:y;x:y;..." (mm, repère en miroir de la librairie) -> points {angle, r}. */
+function decodeTeleplot(body) {
+  const points = [];
+  for (const pair of body.split(';')) {
+    const [xs, ys] = pair.split(':');
+    if (!xs || ys === undefined || xs.trim() === '') continue;
+    const x = Number(xs) / 1000;
+    const y = -Number(ys) / 1000; // correction du miroir de la librairie
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const r = Math.hypot(x, y);
+    points.push({ angle: r > 0 ? (((Math.atan2(y, x) / DEG) % 360) + 360) % 360 : 0, r, intensity: null });
+  }
+  return points;
+}
+
 /**
- * Lit un scan CSV. Si le texte contient plusieurs scans (capture série de la
- * librairie LD06, où N repart à 0), seul le premier est conservé.
+ * Écart médian (m) entre les points de a et leur plus proche voisin dans b : faible si les
+ * deux tours ont été pris depuis la même position, grand si le robot a bougé entre les deux.
+ */
+function medianNeighbourDistance(a, b) {
+  const xy = (pts) => pts.filter((p) => p.r > 0).map((p) => [p.r * Math.cos(p.angle * DEG), p.r * Math.sin(p.angle * DEG)]);
+  const pa = xy(a);
+  const pb = xy(b);
+  if (!pa.length || !pb.length) return Infinity;
+  const d = pa.map(([x, y]) => Math.min(...pb.map(([u, v]) => Math.hypot(x - u, y - v)))).sort((p, q) => p - q);
+  return d[Math.floor(d.length / 2)];
+}
+
+/**
+ * Lit la sortie Teleplot du programme de test (une ligne >lidar:...|xy par tour).
+ *
+ * - La librairie calcule y = -d·sin(angle) alors que l'angle est déjà antihoraire
+ *   (ld06.cpp, l.164) : le nuage Teleplot est en miroir. On rétablit y = +d·sin(angle),
+ *   ce qui redonne exactement les points de l'export RobotControl.
+ * - Le programme de test envoie chaque tour en texte à 115200 bauds, plus lentement que le
+ *   lidar ne produit ses données : des trames sont perdues et chaque tour a des trous, à des
+ *   endroits différents d'un tour à l'autre. Le robot étant immobile, on fusionne les
+ *   dernières lignes complètes (jusqu'à `mergeLines`), en s'arrêtant dès qu'une ligne a été
+ *   prise depuis une autre position (écart médian aux points du dernier tour > `sameViewMax`).
+ * - La dernière ligne est souvent coupée par le copier-coller : seules les lignes terminées
+ *   par |xy sont lues.
+ */
+export function parseTeleplot(text, name = 'scan', options = {}) {
+  const { mergeLines = 4, sameViewMax = 0.05 } = options;
+  const lines = [...text.matchAll(/>\s*([\w-]+)\s*:([^|>]*)\|xy/g)];
+  const scan = { name, pose: { x: 0, y: 0, theta: 0 }, poseFound: false, points: [], format: 'teleplot', comments: [] };
+  if (!lines.length) return scan;
+  const last = decodeTeleplot(lines.at(-1)[2]);
+  scan.points = [...last];
+  let used = 1;
+  for (let k = lines.length - 2; k >= 0 && used < mergeLines; k--) {
+    const pts = decodeTeleplot(lines[k][2]);
+    if (medianNeighbourDistance(pts, last) > sameViewMax) break; // le robot a bougé
+    scan.points.push(...pts);
+    used++;
+  }
+  scan.mergedLines = used;
+  scan.comments.push(
+    `teleplot ${lines.at(-1)[1]} : ${used} tour(s) fusionné(s) sur ${lines.length} ligne(s) complète(s), miroir de la librairie corrigé`,
+  );
+  return scan;
+}
+
+/**
+ * Lit un scan CSV (ou une sortie Teleplot, détectée automatiquement). Si le texte
+ * contient plusieurs scans (capture série de la librairie LD06, où N repart à 0),
+ * seul le premier est conservé.
  */
 export function parseScanCSV(text, name = 'scan') {
+  if (/\|xy/.test(text)) return parseTeleplot(text, name);
   const lines = text.split(/\r?\n/);
   const comments = [];
   let pose = { x: 0, y: 0, theta: 0 };

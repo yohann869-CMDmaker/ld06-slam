@@ -17,8 +17,11 @@
       <h2>Scans</h2>
       <div class="row">
         <label class="btn primary">Ouvrir des scans…<input type="file" id="fileScans" multiple accept=".csv,.txt" hidden></label>
+        <button id="btnPaste" title="Coller la sortie du moniteur série (programme de test, lignes >lidar:...)">Coller un scan</button>
         <button id="btnSim">Jeu simulé</button>
       </div>
+      <p class="hint">Programme de test du prof : dans le moniteur série, Ctrl+A puis Ctrl+C, puis
+        <strong>Ctrl+V sur la carte</strong> (ou « Coller un scan »). Le dernier tour complet devient un nouveau scan.</p>
       <div class="usb">
         <div class="row">
           <button id="usbConnect">Connecter le robot (USB)</button>
@@ -131,6 +134,19 @@
     <div id="toast" hidden></div>
     <div id="drop" hidden><div>Déposer des scans, une grid map (CSV) ou une carte vectorielle (TXT)</div></div>
   </main>
+
+  <dialog id="pasteDialog">
+    <form method="dialog">
+      <h2>Coller un scan</h2>
+      <p class="hint">Coller ici la sortie du moniteur série (lignes <code>&gt;lidar:…|xy</code>) ou un CSV.
+        Seul le dernier tour complet est gardé.</p>
+      <textarea id="pasteText" rows="8" spellcheck="false"></textarea>
+      <div class="row">
+        <button value="cancel">Annuler</button>
+        <button id="pasteOk" value="ok" class="primary-btn">Ajouter le scan</button>
+      </div>
+    </form>
+  </dialog>
 
   <script type="module" src="app.js"></script>
 </body>

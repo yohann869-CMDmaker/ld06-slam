@@ -3,10 +3,12 @@
 Déposer ici les scans de la salle, un fichier par scan, avec le récapitulatif `poses.csv`
 (bouton **Enregistrer tous les scans…** de l'application).
 
-Deux façons d'acquérir les scans :
+Trois façons d'acquérir les scans (détails dans le README principal) :
 
-- **USB** (méthode utilisée) : programme `firmware/ESP32_LD06_Capture` et bouton
-  **Capturer un scan** de l'application (voir le README principal).
+- **Programme de test du module** (méthode utilisée) : copier la sortie Teleplot du moniteur
+  série et la coller dans l'application (Ctrl+V).
+- **USB à la demande** : programme `firmware/ESP32_LD06_Capture` et bouton
+  **Capturer un scan** de l'application.
 - **Wi-Fi** : RobotControl, bouton `Export CSV`.
 
 Format des fichiers (identique à l'export RobotControl) :

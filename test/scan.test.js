@@ -73,6 +73,52 @@ test('bloc envoyé par firmware/ESP32_LD06_Capture : lu comme un CSV RobotContro
   assert.deepEqual(back.points, s.points);
 });
 
+/** Ligne Teleplot telle que l'écrit la librairie (mm, y en miroir) pour une liste de points {angle, r}. */
+const teleplotLine = (points) =>
+  '>lidar:' +
+  points
+    .map((p) => `${Math.round(p.r * 1000 * Math.cos((p.angle * Math.PI) / 180))}:${-Math.round(p.r * 1000 * Math.sin((p.angle * Math.PI) / 180))}`)
+    .join(';') +
+  ';|xy';
+
+test('Teleplot : mm -> m et correction du miroir de la librairie', () => {
+  const s = parseScanCSV('>lidar:1000:500;0:0;|xy\n', 'tp');
+  assert.equal(s.format, 'teleplot');
+  assert.equal(s.points.length, 2);
+  // la librairie écrit y = -d·sin(angle) : (1000, 500) correspond au point (1 ; -0,5)
+  const [p] = scanToLocalXY(s);
+  close(p.x, 1);
+  close(p.y, -0.5);
+  close(p.angle, 360 - (Math.atan2(0.5, 1) * 180) / Math.PI);
+  assert.equal(validPoints(s).length, 1, '0:0 = pas d\'impact');
+});
+
+test('Teleplot : la dernière ligne coupée par le copier-coller est ignorée', () => {
+  const s = parseScanCSV('>lidar:1000:0;0:-1000;|xy\r\n>lidar:2000:0;0:-20', 'tp');
+  assert.equal(s.points.length, 2);
+  close(s.points[0].r, 1);
+});
+
+test('Teleplot : les tours pris depuis la même position sont fusionnés, pas ceux d\'avant un déplacement', async () => {
+  const { rectangle, simulateScan } = await import('../src/core/sim.js');
+  const room = rectangle(0, 0, 5, 4);
+  const here = { x: 2, y: 1.5, theta: 0 };
+  const hit = (p) => p.r > 0;
+  // tour pris avant le déplacement du robot
+  const before = simulateScan(room, { x: 3.2, y: 2.5, theta: 30 }, { seed: 1 }).points.filter(hit);
+  // trois tours depuis la position actuelle, chacun avec un secteur de 90° perdu, à un endroit différent
+  const lossy = (seed, lo) => simulateScan(room, here, { seed }).points.filter((p) => hit(p) && !(p.angle >= lo && p.angle < lo + 90));
+  const tours = [lossy(2, 0), lossy(3, 120), lossy(4, 240)];
+  const text = [before, ...tours].map(teleplotLine).join('\n') + '\n>lidar:12:3';
+  const s = parseScanCSV(text, 'tp');
+  assert.equal(s.points.length, tours.reduce((n, t) => n + t.length, 0));
+  assert.match(s.comments[0], /3 tour\(s\) fusionné\(s\) sur 4/);
+  // l'union couvre tout le tour : plus aucun secteur vide de plus de 5°
+  const angles = s.points.map((p) => p.angle).sort((a, b) => a - b);
+  const gaps = angles.slice(1).map((a, k) => a - angles[k]).concat(angles[0] + 360 - angles.at(-1));
+  assert.ok(Math.max(...gaps) < 5, `plus grand trou ${Math.max(...gaps).toFixed(1)}°`);
+});
+
 test('validPoints rejette r = 0 et les intensités trop faibles', () => {
   const s = parseScanCSV(ROBOTCONTROL);
   assert.equal(validPoints(s).length, 3);

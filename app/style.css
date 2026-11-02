@@ -151,6 +151,27 @@ button:disabled { opacity: 0.5; cursor: default; }
   pointer-events: none;
 }
 
+dialog {
+  width: min(560px, calc(100vw - 32px));
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+  color: var(--ink);
+}
+dialog::backdrop { background: rgba(29, 35, 39, 0.35); }
+dialog h2 { font-size: 14px; text-transform: none; letter-spacing: 0; color: var(--ink); }
+dialog textarea {
+  width: 100%;
+  margin-top: 8px;
+  font: 12px ui-monospace, Consolas, monospace;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 6px;
+}
+dialog .row { justify-content: flex-end; }
+.primary-btn { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.primary-btn:hover { background: #095c58; }
+
 @media (max-width: 760px) {
   body { grid-template-columns: 1fr; grid-template-rows: 55vh 45vh; }
   #sidebar { order: 2; border-right: none; border-top: 1px solid var(--line); }

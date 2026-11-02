@@ -30,7 +30,30 @@ chargent pas depuis `file://`).
 4. **Carte vectorielle** : mêmes actions ; export/import TXT (`x1,y1,x2,y2`), carte de
    référence en pointillés (par ex. `data/sim/scene_A.txt` ou une scène MapTool).
 
-## Acquisition des scans par USB
+## Acquisition des scans avec le programme de test fourni (Teleplot)
+
+Le programme `ESP32_LD06_Test.ino` du module envoie chaque tour sur le port série sous la
+forme `>lidar:x:y;x:y;…|xy` (format Teleplot). L'application lit directement ce texte :
+
+1. Téléverser `ESP32_LD06_Test.ino` et ouvrir le moniteur série de l'IDE Arduino à 115200 bauds.
+2. Poser le robot, attendre 2 à 3 secondes sans le toucher.
+3. Cliquer dans la zone de sortie du moniteur, **Ctrl+A** puis **Ctrl+C**.
+4. Dans l'application, **Ctrl+V** sur la carte (ou bouton **Coller un scan**). Le nouveau scan
+   apparaît dans sa couleur.
+5. Déplacer le robot (0,5 à 1 m, moins de 45° de rotation) et recommencer à l'étape 2.
+
+L'application garde la dernière ligne complète (celle coupée par la copie est ignorée) et
+corrige le miroir des x/y de la librairie. Le programme de test perd des trames, car il envoie
+du texte plus lentement que le lidar ne produit ses mesures : chaque tour a des trous (jusqu'à
+74° sur un tour réel), à des endroits différents d'un tour à l'autre. Les dernières lignes
+prises depuis la même position sont donc fusionnées (jusqu'à 4). Une ligne prise avant un
+déplacement du robot est détectée et écartée.
+
+Ensuite, pour chaque scan : recalage manuel et enregistrement, comme aux étapes 5 et 6 ci-dessous.
+
+## Acquisition des scans par USB (programme de capture)
+
+Variante sans perte de trames : un programme qui n'envoie un scan que sur demande.
 
 1. Dans l'IDE Arduino (librairie `LD06.zip` installée, carte « ESP32 Dev Module »), téléverser
    [`firmware/ESP32_LD06_Capture/ESP32_LD06_Capture.ino`](firmware/ESP32_LD06_Capture/ESP32_LD06_Capture.ino).

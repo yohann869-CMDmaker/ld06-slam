@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LD06 Cartographie</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside id="sidebar">
+    <header>
+      <h1>LD06 · Cartographie</h1>
+      <p class="sub">Nuages de points, grid map, carte vectorielle</p>
+    </header>
+
+    <section>
+      <h2>Scans</h2>
+      <div class="row">
+        <label class="btn primary">Ouvrir des scans…<input type="file" id="fileScans" multiple accept=".csv,.txt" hidden></label>
+        <button id="btnSim">Jeu simulé</button>
+      </div>
+      <ul id="scanList"></ul>
+      <p class="empty" id="scanEmpty">Aucun scan. Ouvrir des CSV (RobotControl, MapTool, capture série) ou les déposer sur la carte.</p>
+
+      <div id="poseEditor" hidden>
+        <div class="pose-title">Pose de <strong id="poseName"></strong></div>
+        <div class="grid3">
+          <label>x (m)<input type="number" id="poseX" step="0.01"></label>
+          <label>y (m)<input type="number" id="poseY" step="0.01"></label>
+          <label>θ (°)<input type="number" id="poseT" step="0.5"></label>
+        </div>
+        <label class="check"><input type="checkbox" id="poseFlip"> Angles bruts horaires (inverser le sens)</label>
+        <div class="row">
+          <button id="btnPoseReset">Pose du fichier</button>
+          <button id="btnScanExport">Exporter avec cette pose</button>
+        </div>
+        <p class="hint">Glisser le scan : translation · Maj + glisser : rotation autour du robot ·
+          Flèches : ±1 cm (Maj : ±10 cm) · Q/A et E : ±0,5° (Maj : ±5°)</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Filtre des points</h2>
+      <div class="grid3">
+        <label>r min (m)<input type="number" id="fMin" step="0.01" value="0.05"></label>
+        <label>r max (m)<input type="number" id="fMax" step="0.5" value="12"></label>
+        <label>Intensité min<input type="number" id="fInt" step="5" value="0"></label>
+      </div>
+    </section>
+
+    <section>
+      <h2>Grid map</h2>
+      <label class="inline">Résolution
+        <select id="gridRes">
+          <option value="0.02">2 cm</option>
+          <option value="0.05" selected>5 cm</option>
+          <option value="0.1">10 cm</option>
+        </select>
+      </label>
+      <div class="row">
+        <button id="gridFromSel">Scan sélectionné → carte</button>
+        <button id="gridUpdateSel">Mettre à jour la carte</button>
+      </div>
+      <div class="row">
+        <button id="gridAll">Tous les scans visibles</button>
+        <button id="gridClear">Effacer</button>
+      </div>
+      <div class="row">
+        <button id="gridDecay" title="Les cellules non observées au dernier scan reviennent vers l'inconnu">Décroissance</button>
+        <button id="gridIsolated" title="Une cellule occupée sans voisine occupée repasse à inconnu">Filtrer isolées</button>
+      </div>
+      <div class="row">
+        <button id="gridExport">Export CSV</button>
+        <button id="gridExportPng">Export PNG</button>
+        <label class="btn">Import CSV<input type="file" id="gridImport" accept=".csv,.txt" hidden></label>
+      </div>
+      <p class="stat" id="gridStat"></p>
+    </section>
+
+    <section>
+      <h2>Carte vectorielle</h2>
+      <label class="check"><input type="checkbox" id="vecAbsence" checked> Gestion des absences (découpe des segments traversés)</label>
+      <div class="row">
+        <button id="vecFromSel">Scan sélectionné → carte</button>
+        <button id="vecUpdateSel">Mettre à jour la carte</button>
+      </div>
+      <div class="row">
+        <button id="vecAll">Tous les scans visibles</button>
+        <button id="vecClear">Effacer</button>
+      </div>
+      <div class="row">
+        <button id="vecExport">Export TXT</button>
+        <label class="btn">Import TXT<input type="file" id="vecImport" accept=".txt,.csv" hidden></label>
+        <label class="btn" title="Carte affichée en pointillés pour comparaison (ex. scène MapTool)">Référence…<input type="file" id="refImport" accept=".txt,.csv" hidden></label>
+      </div>
+      <p class="stat" id="vecStat"></p>
+    </section>
+
+    <section>
+      <h2>Affichage</h2>
+      <div class="checks">
+        <label class="check"><input type="checkbox" id="showPoints" checked> Points</label>
+        <label class="check"><input type="checkbox" id="showRays"> Faisceaux (sélection)</label>
+        <label class="check"><input type="checkbox" id="showSegments"> Segments extraits</label>
+        <label class="check"><input type="checkbox" id="showGrid" checked> Grid map</label>
+        <label class="check"><input type="checkbox" id="showVector" checked> Carte vectorielle</label>
+        <label class="check"><input type="checkbox" id="showRef" checked> Référence</label>
+        <label class="check"><input type="checkbox" id="showMetric" checked> Quadrillage 1 m</label>
+        <label class="check"><input type="checkbox" id="autoRebuild"> Reconstruire les cartes quand une pose change</label>
+      </div>
+    </section>
+  </aside>
+
+  <main id="stage">
+    <canvas id="view"></canvas>
+    <div id="toolbar">
+      <button id="btnFit">Recadrer</button>
+      <button id="btnShot">Capture PNG</button>
+    </div>
+    <div id="status"></div>
+    <div id="toast" hidden></div>
+    <div id="drop" hidden><div>Déposer des scans, une grid map (CSV) ou une carte vectorielle (TXT)</div></div>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

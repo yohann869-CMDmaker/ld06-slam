@@ -24,7 +24,27 @@ export const DEFAULT_GRID = Object.freeze({
   // ne donnerait qu'une carte « inconnue ».
   pOcc: 0.6,
   pFree: 0.45,
+  freeMargin: 0.05, // m : pas de marquage libre dans les 5 derniers cm avant l'impact (~5σ du bruit)
+  fillGaps: true, // faisceaux intermédiaires (libres) entre deux impacts voisins
+  fillMaxAngleDeg: 2, // au-delà, les deux impacts ne sont pas consécutifs
 });
+
+export const UNKNOWN_RGB = Object.freeze([214, 219, 224]);
+const FREE_RGB = [252, 252, 250];
+const OCC_RGB = [29, 35, 39];
+
+/**
+ * Couleur d'affichage d'une cellule : blanc = libre, gris-bleu = inconnu, encre = occupé,
+ * plus ou moins marqué selon la confiance (|log-odds|). Un affichage linéaire de p rendrait
+ * gris moyen une cellule libre vue une seule fois (p = 0,40), difficile à distinguer de l'inconnu.
+ */
+export function occupancyRGB(grid, k) {
+  const c = grid.classify(k);
+  if (c === 0) return UNKNOWN_RGB;
+  const t = 0.55 + 0.45 * Math.min(1, Math.abs(grid.logOdds[k]) / 2);
+  const target = c < 0 ? FREE_RGB : OCC_RGB;
+  return UNKNOWN_RGB.map((u, i) => Math.round(u + (target[i] - u) * t));
+}
 
 /**
  * Tracé de segment de Bresenham entre deux cellules, extrémités comprises.
@@ -148,7 +168,8 @@ export class GridMap {
   /**
    * Intègre un scan pris depuis `pose` :
    *  1. points lidar -> repère monde -> cellules d'impact ;
-   *  2. cellules traversées par chaque faisceau (Bresenham, robot -> impact, impact exclu) : lFree ;
+   *  2. cellules traversées par chaque faisceau (Bresenham, robot -> impact, impact exclu) : lFree,
+   *     plus des faisceaux intermédiaires entre impacts voisins (option fillGaps) ;
    *  3. cellules d'impact : lOcc.
    * Une cellule n'est mise à jour qu'une fois par scan, et si un faisceau s'y arrête,
    * l'occupation l'emporte sur les faisceaux qui la traversent (évite d'éroder les murs
@@ -165,12 +186,10 @@ export class GridMap {
     const stamp = ++this.scanCount;
     const [ri, rj] = this.worldToCell(pose.x, pose.y);
 
-    const ends = [];
     const hitCells = [];
     for (const p of pts) {
       const [i, j] = this.worldToCell(p.x, p.y);
       if (!this.inside(i, j)) continue;
-      ends.push(i, j);
       const k = this.index(i, j);
       if (this.occStamp[k] !== stamp) {
         this.occStamp[k] = stamp;
@@ -179,9 +198,13 @@ export class GridMap {
     }
 
     let freeCells = 0;
-    for (let e = 0; e < ends.length; e += 2) {
-      const ei = ends[e];
-      const ej = ends[e + 1];
+    // Le faisceau vers (x, y) libère les cellules jusqu'à freeMargin avant l'impact, cellule
+    // de ce point exclue : un impact bruité juste derrière un mur ne libère pas la cellule du mur.
+    const m = this.params.freeMargin;
+    const traceFree = (x, y) => {
+      const d = Math.hypot(x - pose.x, y - pose.y);
+      if (d <= m) return;
+      const [ei, ej] = this.worldToCell(pose.x + ((x - pose.x) * (d - m)) / d, pose.y + ((y - pose.y) * (d - m)) / d);
       bresenham(ri, rj, ei, ej, (i, j) => {
         if ((i === ei && j === ej) || !this.inside(i, j)) return;
         const k = this.index(i, j);
@@ -191,6 +214,25 @@ export class GridMap {
         this.lastSeen[k] = stamp;
         freeCells++;
       });
+    };
+    for (const p of pts) traceFree(p.x, p.y);
+
+    // Faisceaux intermédiaires : deux faisceaux réels voisins sont espacés de r·dθ
+    // (5,6 cm à 4 m pour dθ = 0,8°). Au-delà d'une cellule d'écart, des cellules libres
+    // ne seraient jamais traversées (hachures). Entre deux impacts consécutifs sur une même
+    // surface, on trace des faisceaux virtuels qui ne marquent que du libre.
+    if (this.params.fillGaps) {
+      for (let k = 1; k < pts.length; k++) {
+        const p = pts[k - 1];
+        const q = pts[k];
+        if (q.angle - p.angle > this.params.fillMaxAngleDeg) continue; // mesures manquantes entre les deux
+        if (Math.abs(q.r - p.r) > 0.1 * Math.min(p.r, q.r) + 0.05) continue; // pas la même surface
+        const n = Math.floor(Math.hypot(q.x - p.x, q.y - p.y) / this.res);
+        for (let s = 1; s <= n; s++) {
+          const t = s / (n + 1);
+          traceFree(p.x + t * (q.x - p.x), p.y + t * (q.y - p.y));
+        }
+      }
     }
 
     for (const k of hitCells) {

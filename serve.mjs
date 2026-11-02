@@ -25,8 +25,12 @@ const MIME = {
 
 createServer(async (req, res) => {
   try {
-    let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-    if (path === '/') path = '/app/index.html';
+    const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    if (path === '/' || path === '/app') {
+      // l'appli charge style.css et app.js en relatif : il faut l'URL /app/
+      res.writeHead(302, { Location: '/app/' }).end();
+      return;
+    }
     const file = normalize(join(ROOT, path));
     if (!file.startsWith(ROOT)) {
       res.writeHead(403).end('Forbidden');

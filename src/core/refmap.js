@@ -51,6 +51,8 @@ export function makeReferenceMap(o) {
       kind === 'objet' ? { x1, y1, x2, y2, kind, raised: Boolean(raised) } : { x1, y1, x2, y2 },
     ),
     corners: (o.corners ?? []).map(({ x, y, theta }) => ({ x, y, theta })),
+    // carte sémantique : meubles nommés [{ nom, detail, zone: [xmin, ymin, xmax, ymax] }]
+    labels: (o.labels ?? []).map(({ nom, detail = '', zone }) => ({ nom, detail, zone: [...zone] })),
     scans: (o.scans ?? []).map((s) => ({ name: s.name, pose: { ...s.pose }, ...(s.elevated ? { elevated: true } : {}) })),
   };
 }
@@ -81,6 +83,7 @@ export function serializeReferenceMap(ref) {
       [s.x1, s.y1, s.x2, s.y2].map(round).concat(s.kind === 'objet' ? [s.raised ? 'objet surélevé' : 'objet'] : []),
     ),
     corners: ref.corners.map((c) => [round(c.x), round(c.y), Math.round(c.theta * 10) / 10]),
+    etiquettes: ref.labels.map((l) => ({ nom: l.nom, detail: l.detail, zone: l.zone.map(round) })),
     scans: ref.scans.map((s) => ({
       name: s.name,
       pose: [round(s.pose.x), round(s.pose.y), Math.round(s.pose.theta * 100) / 100],
@@ -117,6 +120,7 @@ export function parseReferenceMap(text) {
       raised: kind === 'objet surélevé',
     })),
     corners: (d.corners ?? []).map(([x, y, theta]) => ({ x, y, theta })),
+    labels: d.etiquettes ?? [],
     scans: (d.scans ?? []).map((s) => ({ name: s.name, pose: { x: s.pose[0], y: s.pose[1], theta: s.pose[2] }, elevated: s.en_hauteur })),
   });
 }

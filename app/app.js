@@ -5,9 +5,9 @@ import { looksElevated, parseScanCSV, scanToLocalXY, serializeScanCSV, setElevat
 import { GridMap, gridFromScan, occupancyRGB, UNKNOWN_RGB } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { autoAlign, consistency, matchScan } from '../src/core/matching.js';
-import { cleanMaps, cleanVectorMap, isPartlyOccupied } from '../src/core/cleanup.js';
+import { cleanMaps, cleanVectorMap, isPartlyOccupied, labelPositions, parseLabels } from '../src/core/cleanup.js';
 import { gridReference, localize, METHODS, METHODS_BY_REFERENCE, scanReference, vectorReference } from '../src/core/localization.js';
-import { dayOneExports, MAPTOOL, maptoolColor } from './figures.js';
+import { dayOneExports, drawLabels, MAPTOOL, maptoolColor } from './figures.js';
 import { makeReferenceMap, parseReferenceMap, referenceBounds, serializeReferenceMap } from '../src/core/refmap.js';
 import { extractSegments } from '../src/core/segmentation.js';
 import { transformSegment } from '../src/core/geometry.js';
@@ -25,6 +25,7 @@ const state = {
   gridImage: null,
   vector: null,
   reference: null,
+  labels: null, // carte sémantique de la salle : meubles nommés (data/reference/etiquettes.json)
   view: { x: 4, y: 3, scale: 70 }, // centre de la vue (m) et pixels par mètre
   mouse: null,
 };
@@ -247,6 +248,7 @@ function classify(text) {
 }
 
 async function loadSimulated() {
+  state.labels = null; // les étiquettes de la salle ne valent pas pour la scène simulée
   try {
     const index = await (await fetch('../data/sim/index.json')).json();
     for (const s of index.scans) {
@@ -269,11 +271,26 @@ async function loadSimulated() {
  * écrit par scripts/build-reference.mjs) : de quoi tout retrouver après un rechargement de la page.
  * Les scans déjà dans la liste ne sont pas rechargés.
  */
+/**
+ * Carte sémantique de la salle (data/reference/etiquettes.json) : table, armoire et tableau nommés
+ * à la main. Les objets fixes détectés hors de ces meubles sont retirés des cartes propres.
+ * Chargée avec les scans de la salle (zones dans le repère de la carte de référence).
+ */
+async function loadLabels() {
+  try {
+    const res = await fetch('../data/reference/etiquettes.json', { cache: 'no-store' });
+    state.labels = res.ok ? parseLabels(await res.text()) : null;
+  } catch {
+    state.labels = null;
+  }
+}
+
 async function loadRoomScans() {
   try {
     const res = await fetch('../data/reference/poses_recalees.csv', { cache: 'no-store' });
     if (!res.ok) throw new Error('data/reference/poses_recalees.csv introuvable (node scripts/build-reference.mjs)');
     const rows = (await res.text()).trim().split(/\r?\n/).slice(1).map((l) => l.split(','));
+    await loadLabels();
     const have = new Set(state.scans.map((e) => e.name));
     let n = 0;
     for (const [name, x, y, theta] of rows) {
@@ -595,6 +612,7 @@ function render() {
     if (showRef && !state.vectorClean) strokeCleanSegments(refmap.map.segments);
     if (state.vectorClean) strokeCleanSegments(state.vectorClean.segments);
     drawCorners();
+    drawMapLabels();
     for (const e of state.scans.filter((v) => v.visible)) drawRobot(e, e === state.selected);
     drawLive(s);
     renderStatus();
@@ -675,8 +693,19 @@ function render() {
   }
 
   for (const e of visible) drawRobot(e, e === sel);
+  drawMapLabels();
   drawLive(s);
   renderStatus();
+}
+
+/** Étiquettes de la carte sémantique (case « Étiquettes ») : sur la carte propre, sinon sur la carte de référence. */
+function drawMapLabels() {
+  if (!$('showLabels').checked) return;
+  const ref = $('showRefMap').checked && refmap.map;
+  const labels = state.labels ?? (ref ? refmap.map.labels : null);
+  const segments = state.vectorClean?.segments ?? (ref ? refmap.map.segments : []);
+  if (!labels?.length) return;
+  drawLabels(ctx, sx, sy, labelPositions(segments, labels));
 }
 
 /** Scan en temps réel : en noir, à la pose du scan sélectionné (cyan en vue propre, comme le scan de MapTool). */
@@ -746,6 +775,7 @@ function refreshClean() {
     vector: { minObservations: Math.max(1, Number($('vecMinObs').value) || 1) },
     views: base.map((e) => ({ pose: e.pose, points: worldPoints(e) })), // meubles surélevés
     barriers: high && state.vector ? cleanVectorMap(noAbsence(vis)).segments : [],
+    labels: state.labels, // carte sémantique : seuls les meubles nommés restent des objets
   });
   state.gridClean = c.grid;
   if (state.vector) {
@@ -800,10 +830,11 @@ function setReferenceMap(map) {
   const when = `${d.toLocaleDateString('fr-FR')} ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
   $('refStat').textContent = `${map.name} · ${map.segments.length} segments, ${map.corners.length} coins, grid ${map.grid.width} × ${map.grid.height} (${Math.round(map.grid.res * 100)} cm) · ${map.clean ? 'version propre' : 'version brute'} · ${when}`;
   $('showRefMap').checked = true;
-  $('locRef').value = 'refvector';
+  // grid map de référence + multi-résolution : les 18 scans réels relocalisés à moins de 5 cm et
+  // 2° depuis un départ à 29 cm et 8° (carte vectorielle : 15/18, elle n'a plus que les murs et
+  // les trois meubles nommés)
+  $('locRef').value = 'refgrid';
   fillMethods();
-  // multi-résolution : 17 scans réels sur 18 relocalisés à moins de 5 cm et 2° depuis un départ
-  // à 29 cm et 8° ; le calcul direct, local, en rate 2 (au-delà de sa marge de 25 cm)
   $('locMethod').value = 'multires';
   if (!state.scans.length) fitView();
   draw();
@@ -987,6 +1018,7 @@ async function exportDayOne() {
     vector: state.vector,
     vectorClean: state.vectorClean,
     corners: state.corners ?? [],
+    labels: state.labels ?? [],
   });
   await saveFiles(files);
 }
@@ -1361,7 +1393,7 @@ $('refImport').onchange = async (ev) => {
   draw();
 };
 
-for (const id of ['showPoints', 'showRays', 'showSegments', 'showGrid', 'showVector', 'showRef', 'showMetric', 'showLive', 'showClean']) {
+for (const id of ['showPoints', 'showRays', 'showSegments', 'showGrid', 'showVector', 'showRef', 'showMetric', 'showLive', 'showClean', 'showLabels']) {
   $(id).addEventListener('change', draw);
 }
 

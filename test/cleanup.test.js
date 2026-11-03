@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifySegments, cleanGrid, cleanMaps, cleanVectorMap, dominantDirection, drawObjects, isPartlyOccupied, markRaised, objectGroups, segmentsNearFloor } from '../src/core/cleanup.js';
+import { classifySegments, cleanGrid, cleanMaps, cleanVectorMap, dominantDirection, drawObjects, isPartlyOccupied, labelPositions, applyLabels, markRaised, objectGroups, parseLabels, segmentsNearFloor } from '../src/core/cleanup.js';
 import { GridMap, gridFromScan } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { rectangle, simulateScan } from '../src/core/sim.js';
@@ -181,4 +181,15 @@ test('murs vus d\'en haut : ils ferment la salle derrière une armoire, qui rest
   const out = classifySegments(armoire, g, { barriers: [S(2.55, 0.45, 2.55, 2.55)] });
   assert.deepEqual(out.map((s) => s.kind), ['objet', 'objet', 'objet', 'mur']);
   assert.equal(out[3].seenFromAbove, true);
+});
+
+test('carte sémantique : seuls les meubles nommés restent des objets, les murs ne changent pas', () => {
+  const labels = parseLabels(JSON.stringify({ format: 'ld06-slam/etiquettes', objets: [{ nom: 'Table', detail: 'sur roulettes', zone: [0, 0, 2, 1] }] }));
+  const segs = [objet(0.2, 0.2, 1.8, 0.2), objet(0.2, 0.2, 0.2, 0.8), objet(5, 5, 6, 5), { ...S(0, -1, 9, -1), kind: 'mur' }];
+  const out = applyLabels(segs, labels);
+  assert.deepEqual(out.map((s) => [s.kind, s.label]), [['objet', 'Table'], ['objet', 'Table'], ['mur', undefined]]);
+  const [p] = labelPositions(out, labels);
+  assert.deepEqual([p.nom, p.detail, p.found], ['Table', 'sur roulettes', true]);
+  assert.ok(Math.abs(p.x - 1.0) < 1e-9 && Math.abs(p.y - 0.5) < 1e-9, 'au centre des segments de la table');
+  assert.throws(() => parseLabels('{"format":"autre"}'), /étiquettes/);
 });

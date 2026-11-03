@@ -141,6 +141,10 @@ Pour chaque scan :
   murs (≥ 2 m) qu'ils voient par-dessus les meubles ferment l'extérieur et remplacent les morceaux
   du même mur vus du sol (`barriers`). Grid map, carte vectorielle et meubles sont faits avec les
   scans au sol (`cleanMaps`).
+- **Carte sémantique** (`applyLabels`, `labelPositions`, `data/reference/etiquettes.json`) : les
+  meubles réels sont nommés à la main avec une zone ; un objet fixe dont le milieu est dans la
+  zone prend le nom du meuble, les autres objets détectés sont retirés. L'étiquette s'écrit au
+  centre des segments du meuble.
 - **Coins** : intersection de deux murs presque perpendiculaires dont les extrémités se
   rejoignent, avec la direction de la bissectrice (point d'intérêt orienté du cours).
 

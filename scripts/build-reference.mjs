@@ -6,13 +6,14 @@
 //   4. enregistrement : data/reference/carte_reference.json (chargeable dans l'application),
 //      data/reference/poses_recalees.csv et un aperçu docs/img/j2_carte_reference.png.
 // Usage : node scripts/build-reference.mjs [dossier des scans, défaut data/real]
+import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { looksElevated, parseScanCSV, scanToLocalXY, scanToWorldXY } from '../src/core/scan.js';
 import { gridFromScan } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { autoAlign, consistency } from '../src/core/matching.js';
-import { cleanMaps, cleanVectorMap, isPartlyOccupied, objectGroups } from '../src/core/cleanup.js';
+import { cleanMaps, cleanVectorMap, isPartlyOccupied, labelPositions, objectGroups, parseLabels } from '../src/core/cleanup.js';
 import { makeReferenceMap, referenceBounds, serializeReferenceMap } from '../src/core/refmap.js';
 import { hex, Raster } from './lib/raster.mjs';
 
@@ -53,7 +54,11 @@ const views = floor.map((k) => ({ pose: poses[k], points: scanToWorldXY(scans[k]
 const vmAll = new VectorMap([], { absence: false });
 scans.forEach((s, k) => vmAll.integrateScan(s, poses[k]));
 const barriers = cleanVectorMap(vmAll.segments).segments;
-const vc = cleanMaps(grid, vm.segments, floor.map((k) => poses[k]), { views, barriers });
+// carte sémantique : meubles nommés à la main (table, armoire, tableau) ; les autres objets
+// détectés sont retirés de la carte vectorielle
+const labelsFile = ROOT + 'data/reference/etiquettes.json';
+const labels = existsSync(labelsFile) ? parseLabels(await readFile(labelsFile, 'utf8')) : [];
+const vc = cleanMaps(grid, vm.segments, floor.map((k) => poses[k]), { views, barriers, labels });
 const gridClean = vc.grid;
 const corners = vc.corners;
 const objects = vc.segments.filter((s) => s.kind === 'objet');
@@ -64,6 +69,7 @@ const ref = makeReferenceMap({
   grid: gridClean,
   segments: vc.segments,
   corners,
+  labels,
   scans: scans.map((s, k) => ({ name: s.name, pose: poses[k], elevated: s.elevated })),
   clean: true,
 });
@@ -93,7 +99,25 @@ for (const c of corners) img.dot(c.x, c.y, 5, hex('#f59e0b'));
 // robots au sol en bleu, robots posés en hauteur (recalage seulement) en orange
 poses.forEach((p, k) => img.robot(p, hex(scans[k].elevated ? '#e8590c' : '#1c7ed6'), 5));
 await mkdir(ROOT + 'docs/img', { recursive: true });
-await writeFile(ROOT + 'docs/img/j2_carte_reference.png', img.png());
+const png = img.png();
+await writeFile(ROOT + 'docs/img/j2_carte_reference.png', png);
+// même image avec les étiquettes des meubles (SVG : texte net, l'image PNG est incluse)
+const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const tags = labelPositions(vc.segments, labels).map((p) => {
+  const w = Math.max(p.nom.length * 10, p.detail.length * 7.4) + 18;
+  const h = p.detail ? 40 : 24;
+  const x = img.X(p.x);
+  const y = img.Y(p.y);
+  return `<g><rect x="${(x - w / 2).toFixed(1)}" y="${(y - h / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${h}" rx="6" fill="#fff" fill-opacity="0.93" stroke="#7048e8" stroke-width="2"/>` +
+    `<text x="${x.toFixed(1)}" y="${(y - h / 2 + 17).toFixed(1)}" font-size="16" font-weight="600" fill="#3b2a8f">${esc(p.nom)}</text>` +
+    (p.detail ? `<text x="${x.toFixed(1)}" y="${(y - h / 2 + 33).toFixed(1)}" font-size="12.5" fill="#495057">${esc(p.detail)}</text>` : '') + '</g>';
+});
+await writeFile(
+  ROOT + 'docs/img/j2_carte_reference.svg',
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${img.width}" height="${img.height}" viewBox="0 0 ${img.width} ${img.height}" font-family="Segoe UI, system-ui, sans-serif" text-anchor="middle">` +
+    `<image width="${img.width}" height="${img.height}" href="data:image/png;base64,${png.toString('base64')}"/>${tags.join('')}</svg>
+`,
+);
 
 const st = gridClean.stats();
 console.log(`${scans.length} scans recalés : ${before} % -> ${after} % de points cohérents`);
@@ -107,4 +131,5 @@ for (const g of objectGroups(vc.segments)) {
   console.log(`  meuble en (${cx.toFixed(2)}, ${cy.toFixed(2)}) : ${segs.length} segment(s), ${Math.round(100 * segs[0].under)} % des faisceaux passent dessous -> ${segs[0].raised ? 'surélevé' : 'posé au sol'}`);
 }
 console.log(`Emprise : ${(b.maxX - b.minX).toFixed(1)} m x ${(b.maxY - b.minY).toFixed(1)} m`);
-console.log('Écrit : data/reference/carte_reference.json, data/reference/poses_recalees.csv, docs/img/j2_carte_reference.png');
+console.log(`Étiquettes : ${labels.map((l) => l.nom).join(', ') || 'aucune'}`);
+console.log('Écrit : data/reference/carte_reference.json, data/reference/poses_recalees.csv, docs/img/j2_carte_reference.png et .svg');

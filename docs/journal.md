@@ -118,6 +118,15 @@ direct 10/18 → 16/18.
 | Armoire classée mur, mur de droite en morceaux | Depuis le sol, le mur derrière les meubles n'est pas vu ; l'extérieur rejoint l'armoire | Les grands murs vus d'en haut ferment l'extérieur et complètent le contour de la salle |
 | Table sur roulettes non montrée | L'espace sous la table est plus bas que le plan du lidar : l'information n'est pas dans les mesures | À ajouter à la main (étiquettes, carte sémantique) |
 
+### Carte sémantique (choix de Yohan : garder la table, l'armoire et le tableau)
+
+| Problème | Cause | Correction |
+| --- | --- | --- |
+| Objets détectés qui ne correspondent pas à la réalité (bureaux, meubles le long des murs) | La détection garde tout segment vu par 2 scans hors des murs | `data/reference/etiquettes.json` : table, armoire et tableau nommés avec leur zone ; les autres objets sont retirés de la carte vectorielle (`applyLabels`), la grid map garde ce qu'elle voit |
+| « Sur roulettes » invisible pour le lidar | Information hors du plan de mesure | Étiquettes « Table · sur roulettes », « Armoire · posée au sol », « Tableau · sur 2 roues » sur la carte (application, figures 06 et 07, aperçu SVG) |
+| Carte vectorielle moins bonne pour la localisation (15/18) | Moins de repères le long des murs encombrés | Grid map de référence par défaut (18/18) |
+| Scans perdus au rechargement de la page | L'application ne garde rien | Bouton « Scans de la salle » : les 18 scans à leurs poses recalées, avec les étiquettes |
+
 Ajouts après lecture des documents du cours : localisation sur trois références et six
 méthodes (dont le calcul direct inspiré de l'article « Mars Attacks! »), coins, oubli des
 segments rarement vus, banc d'essai chiffré du jour 2.

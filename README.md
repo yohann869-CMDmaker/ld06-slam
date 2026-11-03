@@ -84,6 +84,8 @@ Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
   en violet, et redessinés dans la grid map ; le fouillis vu par un seul scan est retiré. Un
   meuble sous lequel le lidar passe en partie (tableau sur deux pieds) est **surélevé** :
   pointillés, cellules grises ; un meuble posé au sol (armoire) : trait plein, cellules noires.
+  Avec les scans de la salle, seuls les meubles nommés dans `data/reference/etiquettes.json`
+  (table, armoire, tableau) restent, avec leur **étiquette** (case « Étiquettes »).
 - **Exporter tout le jour 1** : 7 figures PNG avec titre, échelle et légende (nuages de points,
   grid map brute et propre, segments extraits, carte vectorielle brute et propre, plan de la
   salle), les grid maps (CSV) et cartes vectorielles (TXT) brutes et propres, `poses.csv`, et deux

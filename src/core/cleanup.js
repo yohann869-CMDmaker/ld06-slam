@@ -500,7 +500,8 @@ export const isPartlyOccupied = (grid, k) => grid.classify(k) === 1 && grid.prob
  * vectorSegments : segments SANS découpe par les absences (sinon les meubles, traversés par
  * des faisceaux, sont découpés avant d'avoir pu être reconnus).
  * options.views : [{ pose, points }] des scans au sol, pour reconnaître les meubles surélevés ;
- * options.barriers : murs vus par tous les scans, y compris pris en hauteur (frontière de la salle).
+ * options.barriers : murs vus par tous les scans, y compris pris en hauteur (frontière de la salle) ;
+ * options.labels : meubles nommés (carte sémantique, voir applyLabels).
  * Retourne { grid, segments, dominant, corners }.
  */
 export function cleanMaps(grid, vectorSegments, poses, options = {}) {
@@ -509,6 +510,7 @@ export function cleanMaps(grid, vectorSegments, poses, options = {}) {
   const objects = { ...options.objects, barriers: options.barriers ?? [] };
   let segments = classifySegments(segmentsNearFloor(cv.segments, walls), walls, objects);
   if (options.views) segments = markRaised(segments, options.views, options.raised);
+  if (options.labels?.length) segments = applyLabels(segments, options.labels);
   return { grid: drawObjects(walls, segments), segments, dominant: cv.dominant, corners: findCorners(segments) };
 }
 
@@ -596,4 +598,50 @@ export function markRaised(segments, views, options = {}) {
     for (const s of segs) Object.assign(s, { under: ratio, raised: ratio >= o.minRatio });
   }
   return out;
+}
+
+// ------------------------------------------------------------------ carte sémantique
+
+/** Le point (x, y) est-il dans la zone [xmin, ymin, xmax, ymax] ? */
+const inZone = (p, [x0, y0, x1, y1]) => p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1;
+
+/**
+ * Carte sémantique : meubles nommés à la main (data/reference/etiquettes.json),
+ * labels = [{ nom, detail, zone: [xmin, ymin, xmax, ymax] }] dans le repère de la carte.
+ * Un segment d'objet fixe dont le milieu est dans la zone d'un meuble prend son nom (label) ;
+ * les autres objets détectés, qui ne correspondent à aucun meuble réel, sont retirés de la
+ * carte vectorielle (la grid map garde ce qu'elle voit à leur place). Les murs ne changent pas.
+ */
+export function applyLabels(segments, labels) {
+  const out = [];
+  for (const s of segments) {
+    if (s.kind !== 'objet') {
+      out.push(s);
+      continue;
+    }
+    const l = labels.find((l) => inZone(midpoint(s), l.zone));
+    if (l) out.push({ ...s, label: l.nom });
+  }
+  return out;
+}
+
+/**
+ * Où écrire chaque étiquette : au centre des segments du meuble (ou de sa zone s'il n'a pas été
+ * retrouvé). Retourne [{ nom, detail, zone, x, y, found }].
+ */
+export function labelPositions(segments, labels) {
+  return labels.map((l) => {
+    const segs = segments.filter((s) => s.kind === 'objet' && inZone(midpoint(s), l.zone));
+    const xs = segs.flatMap((s) => [s.x1, s.x2]);
+    const ys = segs.flatMap((s) => [s.y1, s.y2]);
+    const [x0, y0, x1, y1] = segs.length ? [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] : l.zone;
+    return { ...l, x: (x0 + x1) / 2, y: (y0 + y1) / 2, found: segs.length > 0 };
+  });
+}
+
+/** Relit un fichier d'étiquettes (format ld06-slam/etiquettes). */
+export function parseLabels(text) {
+  const d = JSON.parse(text);
+  if (d.format !== 'ld06-slam/etiquettes') throw new Error("Ce fichier n'est pas un fichier d'étiquettes ld06-slam");
+  return d.objets.map(({ nom, detail = '', zone }) => ({ nom, detail, zone: zone.map(Number) }));
 }

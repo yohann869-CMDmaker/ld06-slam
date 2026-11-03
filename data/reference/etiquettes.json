@@ -1,0 +1,9 @@
+{
+  "format": "ld06-slam/etiquettes",
+  "description": "Carte sémantique de la salle : meubles fixes nommés à la main, dans le repère de la carte de référence. zone = [xmin, ymin, xmax, ymax] en mètres : un segment d'objet fixe dont le milieu est dans la zone appartient au meuble. Les objets détectés hors de ces zones ne correspondent à aucun meuble réel : ils sont retirés de la carte vectorielle propre.",
+  "objets": [
+    { "nom": "Table", "detail": "sur roulettes", "zone": [-3.7, 0.85, -1.8, 3.45] },
+    { "nom": "Armoire", "detail": "posée au sol", "zone": [-0.3, -0.3, 1.25, 0.5] },
+    { "nom": "Tableau", "detail": "sur 2 roues", "zone": [-8.3, -7.0, -6.95, -5.65] }
+  ]
+}

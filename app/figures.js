@@ -3,7 +3,7 @@
 // fichiers directement lisibles par MapTool.
 import { DEG } from '../src/core/pose.js';
 import { occupancyRGB } from '../src/core/gridmap.js';
-import { isPartlyOccupied } from '../src/core/cleanup.js';
+import { isPartlyOccupied, labelPositions } from '../src/core/cleanup.js';
 
 export const MAPTOOL = Object.freeze({
   background: '#1e293b', // fond ardoise de MapTool
@@ -184,6 +184,44 @@ function drawSegments(ctx, X, Y, segs, color, width, dash = null) {
   ctx.setLineDash([]);
 }
 
+/**
+ * Étiquettes de la carte sémantique : nom du meuble et détail dans un cartouche blanc bordé de
+ * violet, centré sur le meuble. positions : labelPositions(...) ; X, Y : monde -> pixels.
+ */
+export function drawLabels(ctx, X, Y, positions, scale = 1) {
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const big = `600 ${12 * scale}px system-ui, Segoe UI, sans-serif`;
+  const small = `${10.5 * scale}px system-ui, Segoe UI, sans-serif`;
+  for (const p of positions) {
+    ctx.font = big;
+    let w = ctx.measureText(p.nom).width;
+    ctx.font = small;
+    if (p.detail) w = Math.max(w, ctx.measureText(p.detail).width);
+    w += 14 * scale;
+    const h = (p.detail ? 31 : 19) * scale;
+    const cx = X(p.x);
+    const top = Y(p.y) - h / 2;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.93)';
+    ctx.strokeStyle = MAPTOOL.object;
+    ctx.lineWidth = 1.5 * scale;
+    ctx.beginPath();
+    ctx.roundRect(cx - w / 2, top, w, h, 5 * scale);
+    ctx.fill();
+    ctx.stroke();
+    ctx.font = big;
+    ctx.fillStyle = '#3b2a8f';
+    ctx.fillText(p.nom, cx, top + 3.5 * scale);
+    if (p.detail) {
+      ctx.font = small;
+      ctx.fillStyle = '#495057';
+      ctx.fillText(p.detail, cx, top + 17 * scale);
+    }
+  }
+  ctx.restore();
+}
+
 /** Objets fixes : posés au sol en trait plein, surélevés (le lidar passe dessous) en pointillés. */
 function drawObjectSegments(ctx, X, Y, segs, width) {
   drawSegments(ctx, X, Y, segs.filter((s) => !s.raised), MAPTOOL.object, width);
@@ -355,6 +393,7 @@ export async function dayOneExports(d) {
     drawSegments(ctx, X, Y, walls, MAPTOOL.segment, 4);
     drawObjectSegments(ctx, X, Y, objects, 4);
     drawCorners(ctx, X, Y, d.corners);
+    drawLabels(ctx, X, Y, labelPositions(d.vectorClean.segments, d.labels ?? []), 1.3);
   }));
 
   await add('07_plan_de_la_salle.png', figure(clean, {
@@ -372,6 +411,7 @@ export async function dayOneExports(d) {
     drawSegments(ctx, X, Y, walls, '#1d2327', 5);
     drawObjectSegments(ctx, X, Y, objects, 5);
     drawCorners(ctx, X, Y, d.corners);
+    drawLabels(ctx, X, Y, labelPositions(d.vectorClean.segments, d.labels ?? []), 1.3);
     drawRobots(ctx, X, Y, d.scans);
   }));
 

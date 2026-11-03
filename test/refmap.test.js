@@ -66,3 +66,9 @@ test('carte de référence : les scans pris en hauteur restent marqués', () => 
   const back = parseReferenceMap(serializeReferenceMap(ref));
   assert.deepEqual(back.scans.map((s) => Boolean(s.elevated)), [true, false]);
 });
+
+test('carte de référence : les étiquettes des meubles sont enregistrées', () => {
+  const grid = gridFromScan(simulateScan(rectangle(0, 0, 4, 3), { x: 2, y: 1.5, theta: 0 }, { seed: 1 }));
+  const labels = [{ nom: 'Armoire', detail: 'posée au sol', zone: [0, 0, 1, 0.5] }];
+  assert.deepEqual(parseReferenceMap(serializeReferenceMap(makeReferenceMap({ grid, labels }))).labels, labels);
+});

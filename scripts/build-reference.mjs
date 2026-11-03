@@ -7,11 +7,11 @@
 // Usage : node scripts/build-reference.mjs [dossier des scans, défaut data/real]
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { parseScanCSV, scanToLocalXY } from '../src/core/scan.js';
+import { parseScanCSV, scanToLocalXY, scanToWorldXY } from '../src/core/scan.js';
 import { gridFromScan } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { autoAlign, consistency } from '../src/core/matching.js';
-import { cleanMaps } from '../src/core/cleanup.js';
+import { cleanMaps, isPartlyOccupied, objectGroups } from '../src/core/cleanup.js';
 import { makeReferenceMap, referenceBounds, serializeReferenceMap } from '../src/core/refmap.js';
 import { hex, Raster } from './lib/raster.mjs';
 
@@ -41,7 +41,8 @@ const grid = gridFromScan(scans[0], poses[0]);
 scans.slice(1).forEach((s, k) => grid.integrateScan(s, poses[k + 1]));
 const vm = new VectorMap([], { absence: false });
 scans.forEach((s, k) => vm.integrateScan(s, poses[k]));
-const vc = cleanMaps(grid, vm.segments, poses);
+const views = scans.map((s, k) => ({ pose: poses[k], points: scanToWorldXY(s, poses[k]) }));
+const vc = cleanMaps(grid, vm.segments, poses, { views });
 const gridClean = vc.grid;
 const corners = vc.corners;
 const objects = vc.segments.filter((s) => s.kind === 'objet');
@@ -68,14 +69,15 @@ for (let j = 0; j < gridClean.height; j++) {
   for (let i = 0; i < gridClean.width; i++) {
     const c = gridClean.classify(gridClean.index(i, j));
     if (c === 0) continue;
-    const col = c === -1 ? [255, 255, 255] : [134, 142, 150];
+    const col = c === -1 ? [255, 255, 255] : isPartlyOccupied(gridClean, gridClean.index(i, j)) ? [193, 198, 204] : [134, 142, 150];
     for (let y = Math.round(img.Y(gridClean.originY + (j + 1) * gridClean.res)); y < Math.round(img.Y(gridClean.originY + j * gridClean.res)); y++) {
       for (let x = Math.round(img.X(gridClean.originX + i * gridClean.res)); x < Math.round(img.X(gridClean.originX + (i + 1) * gridClean.res)); x++) img.blend(x, y, col);
     }
   }
 }
 img.metric(1);
-for (const s of vc.segments) img.line(s.x1, s.y1, s.x2, s.y2, hex(s.kind === 'objet' ? '#7048e8' : '#1d2327'), 4);
+// murs en noir, meubles en violet : trait plein posés au sol, pointillés surélevés
+for (const s of vc.segments) img.line(s.x1, s.y1, s.x2, s.y2, hex(s.kind === 'objet' ? '#7048e8' : '#1d2327'), 4, s.raised ? [10, 7] : null);
 for (const c of corners) img.dot(c.x, c.y, 5, hex('#f59e0b'));
 poses.forEach((p) => img.robot(p, hex('#1c7ed6'), 5));
 await mkdir(ROOT + 'docs/img', { recursive: true });
@@ -84,6 +86,12 @@ await writeFile(ROOT + 'docs/img/j2_carte_reference.png', img.png());
 const st = gridClean.stats();
 console.log(`${scans.length} scans recalés : ${before} % -> ${after} % de points cohérents`);
 console.log(`Grid map : ${gridClean.width} x ${gridClean.height} cellules de ${gridClean.res} m (${st.free} libres, ${st.occupied} occupées)`);
-console.log(`Carte vectorielle : ${vc.segments.length} segments dont ${objects.length} d'objets fixes, ${corners.length} coins, direction des murs ${vc.dominant.toFixed(1)}°`);
+console.log(`Carte vectorielle : ${vc.segments.length} segments dont ${objects.length} d'objets fixes (${objects.filter((s) => s.raised).length} surélevés), ${corners.length} coins, direction des murs ${vc.dominant.toFixed(1)}°`);
+for (const g of objectGroups(vc.segments)) {
+  const segs = g.map((k) => vc.segments[k]);
+  const cx = segs.reduce((a, s) => a + s.x1 + s.x2, 0) / (2 * segs.length);
+  const cy = segs.reduce((a, s) => a + s.y1 + s.y2, 0) / (2 * segs.length);
+  console.log(`  meuble en (${cx.toFixed(2)}, ${cy.toFixed(2)}) : ${segs.length} segment(s), ${Math.round(100 * segs[0].under)} % des faisceaux passent dessous -> ${segs[0].raised ? 'surélevé' : 'posé au sol'}`);
+}
 console.log(`Emprise : ${(b.maxX - b.minX).toFixed(1)} m x ${(b.maxY - b.minY).toFixed(1)} m`);
 console.log('Écrit : data/reference/carte_reference.json, data/reference/poses_recalees.csv, docs/img/j2_carte_reference.png');

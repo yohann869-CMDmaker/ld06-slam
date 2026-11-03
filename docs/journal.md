@@ -100,6 +100,15 @@ Choix : JavaScript (modules ES) sans dépendance, même code pour l'application 
 Effet sur la localisation (18 scans, départ à 29 cm et 8°) : grid map 13/18 → 18/18, calcul
 direct 10/18 → 16/18.
 
+### Meubles surélevés (table sur roulettes, tableau sur deux pieds)
+
+| Problème | Cause | Correction |
+| --- | --- | --- |
+| Rien ne distinguait la table et le tableau (surélevés) de l'armoire (posée au sol) | Le plan ne montrait que des segments | Part des faisceaux qui passent sous chaque meuble (`markRaised`) : pointillés et cellules grises si plus de 15 % |
+| Mesure par segment : l'armoire semblait aussi surélevée (81 %) | Le robot du premier scan et de `ls09` est dans l'emprise de l'armoire et voit à travers ses faces | Scans pris depuis l'emprise d'un meuble ignorés : armoire 6 %, table 23 %, tableau 58 % |
+| Faisceau compté deux fois sous la table | Il traverse le côté proche puis le côté opposé | Comptage par meuble (segments reliés par leurs coins), un faisceau compte une fois |
+| Pointillés peu visibles dans la vue propre | Cellules noires continues sous le tracé | Cellules d'un meuble surélevé « occupées en partie » (p = 0,75) dessinées en gris clair |
+
 Ajouts après lecture des documents du cours : localisation sur trois références et six
 méthodes (dont le calcul direct inspiré de l'article « Mars Attacks! »), coins, oubli des
 segments rarement vus, banc d'essai chiffré du jour 2.

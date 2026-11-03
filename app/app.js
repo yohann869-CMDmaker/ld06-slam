@@ -5,7 +5,7 @@ import { parseScanCSV, scanToLocalXY, serializeScanCSV, validPoints } from '../s
 import { GridMap, gridFromScan, occupancyRGB, UNKNOWN_RGB } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { autoAlign, consistency, matchScan } from '../src/core/matching.js';
-import { cleanMaps } from '../src/core/cleanup.js';
+import { cleanMaps, isPartlyOccupied } from '../src/core/cleanup.js';
 import { gridReference, localize, METHODS, METHODS_BY_REFERENCE, scanReference, vectorReference } from '../src/core/localization.js';
 import { dayOneExports, MAPTOOL, maptoolColor } from './figures.js';
 import { makeReferenceMap, parseReferenceMap, referenceBounds, serializeReferenceMap } from '../src/core/refmap.js';
@@ -700,6 +700,7 @@ function refreshClean() {
   }
   const c = cleanMaps(state.grid, segments, vis.map((e) => e.pose), {
     vector: { minObservations: Math.max(1, Number($('vecMinObs').value) || 1) },
+    views: vis.map((e) => ({ pose: e.pose, points: worldPoints(e) })), // meubles surélevés
   });
   state.gridClean = c.grid;
   if (state.vector) {
@@ -715,7 +716,12 @@ function strokeCleanSegments(segs) {
   ctx.strokeStyle = MAPTOOL.segment;
   strokeSegments(segs.filter((s) => s.kind !== 'objet'));
   ctx.strokeStyle = MAPTOOL.object;
-  strokeSegments(segs.filter((s) => s.kind === 'objet'));
+  strokeSegments(segs.filter((s) => s.kind === 'objet' && !s.raised));
+  // meubles surélevés (le lidar passe dessous) : pointillés, comme sur un plan d'architecte
+  ctx.setLineDash([9, 6]);
+  ctx.lineCap = 'butt';
+  strokeSegments(segs.filter((s) => s.kind === 'objet' && s.raised));
+  ctx.setLineDash([]);
 }
 
 /** Coins (points d'intérêt) de la carte vectorielle propre : losanges orange, comme le tracé en cours de MapTool. */
@@ -770,7 +776,7 @@ function referenceImage(g) {
       const c = g.classify(g.index(i, j));
       if (c === 0) continue;
       const o = 4 * ((g.height - 1 - j) * g.width + i);
-      img.data.set(c === -1 ? [255, 255, 255, 255] : [134, 142, 150, 255], o);
+      img.data.set(c === -1 ? [255, 255, 255, 255] : isPartlyOccupied(g, g.index(i, j)) ? [193, 198, 204, 255] : [134, 142, 150, 255], o);
     }
   }
   octx.putImageData(img, 0, 0);

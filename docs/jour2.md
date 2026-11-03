@@ -81,7 +81,8 @@ qu'avec assez de recouvrement entre scans.
 
 *Carte à 18 scans. Sol blanc, murs gris (grid map propre), murs en noir, objets fixes en violet
 (table du milieu, armoire contre le mur de droite, tableau en diagonale dans le coin en bas à
-gauche, meubles le long du mur du haut), coins orange, poses des scans en bleu. Ancienne carte à
+gauche, meubles le long du mur du haut) : trait plein posés au sol, pointillés surélevés ; coins
+orange, poses des scans en bleu. Ancienne carte à
 7 scans : [j2_carte_reference_7scans.png](img/j2_carte_reference_7scans.png) (rectangle central
 ouvert et décalé).*
 
@@ -91,6 +92,30 @@ grid map, les faisceaux d'autres scans passent sous la table et effacent ses cel
 cellules occupées pour 8 m de contour), et la découpe par les absences effaçait leurs segments
 (8,3 m → 0,2 m pour la table). Ils sont maintenant reconnus parce que plusieurs scans les voient
 (2 à 5 scans par côté), alors que le fouillis (chaises, sacs) n'est vu que par un scan.
+
+**Meubles surélevés.** La table est sur roulettes et le tableau sur deux pieds : le plan du lidar
+passe en partie dessous. Pour chaque meuble, on compte les faisceaux qui s'arrêtent dessus et
+ceux qui le traversent pour toucher quelque chose derrière (scans pris depuis la salle) :
+
+| Meuble | Faisceaux passés dessous | Classement |
+| --- | --- | --- |
+| Armoire (contre le mur de droite) | 6 % | posée au sol |
+| Meuble de 0,9 m contre le mur du haut | 6 % | posé au sol |
+| Table du milieu | 23 % | surélevée |
+| Tableau (coin en bas à gauche) | 58 % | surélevé |
+| Autres meubles le long des murs (bureaux) | 30 à 78 % | surélevés |
+
+Les meubles posés au sol plafonnent à 6 % (petites erreurs de pose) ; le seuil est fixé à 15 %.
+Sur le plan, un meuble surélevé est dessiné en **pointillés** (convention des plans d'architecte
+pour ce qui est au-dessus du sol), un meuble posé au sol en trait plein ; dans la grid map, ses
+cellules sont « occupées en partie » (gris clair, p = 0,75) : il reste un obstacle pour le robot.
+
+Deux observations le confirment : les robots des scans `175930` et `ls08` ont leur centre 15 à
+24 cm à l'intérieur de l'emprise de la table (le robot s'est glissé en partie dessous). À
+l'inverse, le robot du premier scan (`175527`, origine de la carte) et de `ls09` est placé dans
+l'emprise de l'armoire, et voit à travers trois de ses faces : ces deux scans sont ignorés pour
+juger l'armoire (vue de la salle, elle arrête 94 % des faisceaux). Point à vérifier sur place :
+la position exacte du robot au premier scan par rapport à l'armoire.
 
 Dans l'application, section **Carte de référence (jour 2)** :
 

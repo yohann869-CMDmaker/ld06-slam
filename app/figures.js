@@ -3,6 +3,7 @@
 // fichiers directement lisibles par MapTool.
 import { DEG } from '../src/core/pose.js';
 import { occupancyRGB } from '../src/core/gridmap.js';
+import { isPartlyOccupied } from '../src/core/cleanup.js';
 
 export const MAPTOOL = Object.freeze({
   background: '#1e293b', // fond ardoise de MapTool
@@ -10,6 +11,7 @@ export const MAPTOOL = Object.freeze({
   wall: '#000000',
   segment: '#ef4444',
   object: '#7048e8', // objets fixes (table, armoire, tableau) : violet, distinct des murs
+  raised: '#868e96', // grid map : cellules d'un meuble surélevé, occupées en partie (le lidar passe dessous)
   gridLine: '#d1d5db',
 });
 
@@ -39,9 +41,11 @@ const hexRGB = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16),
 export function maptoolColor(grid) {
   const floor = hexRGB(MAPTOOL.floor);
   const wall = hexRGB(MAPTOOL.wall);
+  const raised = hexRGB(MAPTOOL.raised);
   return (k) => {
     const c = grid.classify(k);
-    return c === 1 ? wall : c === -1 ? floor : null;
+    if (c === 1) return isPartlyOccupied(grid, k) ? raised : wall;
+    return c === -1 ? floor : null;
   };
 }
 
@@ -166,16 +170,24 @@ function drawGrid(ctx, X, Y, grid, color) {
   ctx.drawImage(gridBitmap(grid, color), x0, y0, X(grid.originX + grid.width * grid.res) - x0, Y(grid.originY) - y0);
 }
 
-function drawSegments(ctx, X, Y, segs, color, width) {
+function drawSegments(ctx, X, Y, segs, color, width, dash = null) {
   ctx.strokeStyle = color;
   ctx.lineWidth = width;
-  ctx.lineCap = 'round';
+  ctx.lineCap = dash ? 'butt' : 'round';
+  ctx.setLineDash(dash ?? []);
   ctx.beginPath();
   for (const s of segs) {
     ctx.moveTo(X(s.x1), Y(s.y1));
     ctx.lineTo(X(s.x2), Y(s.y2));
   }
   ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+/** Objets fixes : posés au sol en trait plein, surélevés (le lidar passe dessous) en pointillés. */
+function drawObjectSegments(ctx, X, Y, segs, width) {
+  drawSegments(ctx, X, Y, segs.filter((s) => !s.raised), MAPTOOL.object, width);
+  drawSegments(ctx, X, Y, segs.filter((s) => s.raised), MAPTOOL.object, width, [3 * width, 2 * width]);
 }
 
 function drawRobots(ctx, X, Y, scans, numbered = true) {
@@ -304,7 +316,7 @@ export async function dayOneExports(d) {
   await add('03_grid_map_propre.png', figure(clean, {
     title: 'Grid map propre',
     subtitle: sub('poussières, faisceaux sortis par les fenêtres et petits trous retirés'),
-    legend: [[MAPTOOL.floor, 'libre'], [MAPTOOL.background, 'inconnu'], [MAPTOOL.wall, 'occupé']],
+    legend: [[MAPTOOL.floor, 'libre'], [MAPTOOL.background, 'inconnu'], [MAPTOOL.wall, 'occupé'], [MAPTOOL.raised, 'occupé en partie (meuble surélevé)']],
     dark: true,
   }, (ctx, X, Y) => {
     drawGrid(ctx, X, Y, d.gridClean, maptoolColor(d.gridClean));
@@ -335,29 +347,30 @@ export async function dayOneExports(d) {
   await add('06_carte_vectorielle_propre.png', figure(clean, {
     title: 'Carte vectorielle propre',
     subtitle: sub(`${walls.length} segments de murs redressés (direction ${d.vectorClean.dominant.toFixed(1)}°) et ${objects.length} d'objets fixes`),
-    legend: [[MAPTOOL.segment, 'mur'], [MAPTOOL.object, 'objet fixe (meuble)'], ['#f59e0b', `coin (${d.corners.length})`], [MAPTOOL.floor, 'sol']],
+    legend: [[MAPTOOL.segment, 'mur'], [MAPTOOL.object, 'meuble : trait plein posé au sol, pointillés surélevé'], ['#f59e0b', `coin (${d.corners.length})`], [MAPTOOL.floor, 'sol']],
     dark: true,
   }, (ctx, X, Y) => {
     drawGrid(ctx, X, Y, d.gridClean, (k) => (d.gridClean.classify(k) === -1 ? [255, 255, 255] : null));
     metricLines(ctx, X, Y, clean, 'rgba(209,213,219,0.35)');
     drawSegments(ctx, X, Y, walls, MAPTOOL.segment, 4);
-    drawSegments(ctx, X, Y, objects, MAPTOOL.object, 4);
+    drawObjectSegments(ctx, X, Y, objects, 4);
     drawCorners(ctx, X, Y, d.corners);
   }));
 
   await add('07_plan_de_la_salle.png', figure(clean, {
     title: 'Plan de la salle',
     subtitle: sub('grid map propre + carte vectorielle propre'),
-    legend: [[MAPTOOL.floor, 'sol'], ['#1d2327', 'murs'], [MAPTOOL.object, 'objets fixes (meubles)'], ['#f59e0b', 'coins']],
+    legend: [[MAPTOOL.floor, 'sol'], ['#1d2327', 'murs'], [MAPTOOL.object, 'meubles : trait plein posé au sol, pointillés surélevé'], ['#f59e0b', 'coins']],
     background: '#d6dbe0',
   }, (ctx, X, Y) => {
     drawGrid(ctx, X, Y, d.gridClean, (k) => {
       const c = d.gridClean.classify(k);
-      return c === -1 ? [255, 255, 255] : c === 1 ? [134, 142, 150] : null;
+      if (c === 1) return isPartlyOccupied(d.gridClean, k) ? [193, 198, 204] : [134, 142, 150];
+      return c === -1 ? [255, 255, 255] : null;
     });
     metricLines(ctx, X, Y, clean, 'rgba(29,35,39,0.07)');
     drawSegments(ctx, X, Y, walls, '#1d2327', 5);
-    drawSegments(ctx, X, Y, objects, MAPTOOL.object, 5);
+    drawObjectSegments(ctx, X, Y, objects, 5);
     drawCorners(ctx, X, Y, d.corners);
     drawRobots(ctx, X, Y, d.scans);
   }));

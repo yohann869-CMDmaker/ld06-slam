@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifySegments, cleanGrid, cleanMaps, cleanVectorMap, dominantDirection, drawObjects, segmentsNearFloor } from '../src/core/cleanup.js';
+import { classifySegments, cleanGrid, cleanMaps, cleanVectorMap, dominantDirection, drawObjects, isPartlyOccupied, markRaised, objectGroups, segmentsNearFloor } from '../src/core/cleanup.js';
 import { GridMap, gridFromScan } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { rectangle, simulateScan } from '../src/core/sim.js';
@@ -117,4 +117,49 @@ test('cartes propres : la table d\'une salle simulée devient un objet fixe, les
     const m = mid(s);
     assert.ok(m.x < 0.2 || m.x > 5.8 || m.y < 0.2 || m.y > 3.8, `mur hors du bord : ${m.x}, ${m.y}`);
   }
+});
+
+// Robot en `pose` ; `stop` impacts sur le meuble (y = 1) et `under` impacts 1 m derrière (y = 2) :
+// ces faisceaux-là sont passés sous le meuble.
+const view = (pose, x0, stop, under) => ({
+  pose,
+  points: [
+    ...Array.from({ length: stop }, (_, k) => ({ x: x0 + 0.2 + 0.06 * k, y: 1 })),
+    ...Array.from({ length: under }, (_, k) => ({ x: x0 + 0.2 + 0.06 * k, y: 2 })),
+  ],
+});
+const objet = (x1, y1, x2, y2) => ({ x1, y1, x2, y2, kind: 'objet' });
+
+test('meubles : regroupés par leurs coins (les côtés d\'une table forment un seul meuble)', () => {
+  const segs = [objet(0, 0, 1, 0), objet(1, 0, 1, 1), { ...S(5, 0, 6, 0), kind: 'mur' }, objet(3, 0, 4, 0)];
+  assert.deepEqual(objectGroups(segs), [[0, 1], [3]]);
+});
+
+test('meubles surélevés : la table laisse passer des faisceaux dessous, l\'armoire les arrête', () => {
+  const table = objet(1, 1, 2, 1);
+  const armoire = objet(4, 1, 5, 1);
+  const out = markRaised([table, armoire], [view({ x: 1.5, y: 0, theta: 90 }, 1, 6, 4), view({ x: 4.5, y: 0, theta: 90 }, 4, 10, 0)]);
+  assert.equal(out[0].raised, true);
+  assert.ok(Math.abs(out[0].under - 0.4) < 1e-9, `table : ${out[0].under}`);
+  assert.equal(out[1].raised, false);
+  assert.equal(out[1].under, 0);
+  assert.equal(table.raised, undefined, 'segments d\'origine inchangés');
+});
+
+test('meubles surélevés : un robot garé dans l\'emprise du meuble ne compte pas', () => {
+  // armoire en L de 1 m × 1 m ; un robot placé à l'intérieur voit à travers ses faces
+  const segs = [objet(6, 1, 7, 1), objet(7, 1, 7, 2)];
+  const inside = { pose: { x: 6.5, y: 1.5, theta: -90 }, points: [{ x: 6.5, y: 0.2 }, { x: 6.6, y: 0.2 }, { x: 6.7, y: 0.2 }] };
+  const out = markRaised(segs, [inside, view({ x: 6.5, y: 0, theta: 90 }, 6, 5, 0)]);
+  assert.deepEqual(out.map((s) => s.raised), [false, false]);
+});
+
+test('grid map propre : meuble surélevé occupé en partie, meuble posé au sol occupé', () => {
+  const g = roomWithTable();
+  const drawn = drawObjects(g, [{ ...objet(0.8, 1.0, 1.2, 1.0), raised: true }, objet(0.8, 2.0, 1.2, 2.0)]);
+  const [i1, j1] = g.worldToCell(1.0, 1.0);
+  const [i2, j2] = g.worldToCell(1.0, 2.0);
+  assert.equal(drawn.classify(drawn.index(i1, j1)), 1, 'reste un obstacle');
+  assert.equal(isPartlyOccupied(drawn, drawn.index(i1, j1)), true);
+  assert.equal(isPartlyOccupied(drawn, drawn.index(i2, j2)), false);
 });

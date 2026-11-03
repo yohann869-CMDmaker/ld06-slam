@@ -17,7 +17,7 @@
 // segment vu par plusieurs scans est un objet fixe, il est gardé et redessiné dans la grid.
 
 import { bresenham, GridMap } from './gridmap.js';
-import { areClose, length, mergeSegments, midpoint, orientationDeg } from './geometry.js';
+import { angleBetweenDeg, areClose, intersect, length, mergeSegments, midpoint, orientationDeg, pointSegmentDistance } from './geometry.js';
 import { DEG } from './pose.js';
 
 export const DEFAULT_GRID_CLEAN = Object.freeze({
@@ -439,19 +439,33 @@ export function classifySegments(segments, cleanedGrid, options = {}) {
   return out.filter((s) => s.kind);
 }
 
+/**
+ * Probabilité d'occupation donnée aux cellules d'un meuble surélevé : « occupé en partie ». Elle
+ * reste au-dessus du seuil d'occupation (c'est un obstacle pour le robot), mais se distingue des
+ * murs et des meubles posés au sol (p = 0,98) : les rendus la dessinent en gris.
+ */
+export const RAISED_P = 0.75;
+
 /** Grid map propre avec les objets fixes dessinés (cellules occupées le long des segments 'objet'). */
 export function drawObjects(cleanedGrid, segments) {
   const g = cleanedGrid.clone();
+  const raised = Math.log(RAISED_P / (1 - RAISED_P));
   for (const s of segments) {
     if (s.kind !== 'objet') continue;
     const [i1, j1] = g.worldToCell(s.x1, s.y1);
     const [i2, j2] = g.worldToCell(s.x2, s.y2);
     bresenham(i1, j1, i2, j2, (i, j) => {
-      if (g.inside(i, j)) g.logOdds[g.index(i, j)] = g.params.lMax;
+      if (!g.inside(i, j)) return;
+      const k = g.index(i, j);
+      // une cellule déjà mur (posé au sol) le reste
+      g.logOdds[k] = s.raised ? Math.max(g.logOdds[k], raised) : g.params.lMax;
     });
   }
   return g;
 }
+
+/** Cellule occupée en partie : meuble surélevé (le lidar passe dessous). */
+export const isPartlyOccupied = (grid, k) => grid.classify(k) === 1 && grid.probability(k) < 0.9;
 
 /**
  * Chaîne complète des cartes propres (application, carte de référence) :
@@ -464,6 +478,92 @@ export function drawObjects(cleanedGrid, segments) {
 export function cleanMaps(grid, vectorSegments, poses, options = {}) {
   const walls = cleanGrid(grid, poses, options.grid);
   const cv = cleanVectorMap(vectorSegments, options.vector);
-  const segments = classifySegments(segmentsNearFloor(cv.segments, walls), walls, options.objects);
+  let segments = classifySegments(segmentsNearFloor(cv.segments, walls), walls, options.objects);
+  if (options.views) segments = markRaised(segments, options.views, options.raised);
   return { grid: drawObjects(walls, segments), segments, dominant: cv.dominant, corners: findCorners(segments) };
+}
+
+/** Meubles : groupes de segments 'objet' reliés par leurs extrémités (les 4 côtés d'une table). */
+export function objectGroups(segments, joinDist = DEFAULT_OBJECTS.joinDist) {
+  const ends = (s) => [[s.x1, s.y1], [s.x2, s.y2]];
+  const touch = (a, b) => ends(a).some(([x, y]) => ends(b).some(([u, v]) => Math.hypot(x - u, y - v) <= joinDist));
+  const idx = segments.map((s, k) => k).filter((k) => segments[k].kind === 'objet');
+  const group = new Map();
+  const groups = [];
+  for (const k of idx) {
+    if (group.has(k)) continue;
+    const g = [k];
+    group.set(k, g);
+    for (let q = 0; q < g.length; q++) {
+      for (const m of idx) {
+        if (!group.has(m) && touch(segments[g[q]], segments[m])) {
+          group.set(m, g);
+          g.push(m);
+        }
+      }
+    }
+    groups.push(g);
+  }
+  return groups;
+}
+
+export const DEFAULT_RAISED = Object.freeze({
+  hitDist: 0.06, // m : impact à moins de 6 cm du segment : le faisceau s'arrête sur le meuble
+  behind: 0.15, // m : impact au moins 15 cm derrière le segment : le faisceau est passé dessous
+  minCrossAngle: 20, // degrés : faisceau trop rasant ignoré (sensible aux erreurs de pose)
+  endMargin: 0.05, // m : faisceau qui passe à moins de 5 cm d'une extrémité ignoré (à côté du meuble)
+  // meuble surélevé si au moins 15 % des faisceaux qui l'atteignent passent dessous. Mesuré sur la
+  // salle : meubles posés au sol 6 % (erreurs de pose), table sur roulettes 23 %, tableau 58 %
+  minRatio: 0.15,
+});
+
+/**
+ * Meubles surélevés (table sur roulettes, tableau sur deux pieds) : le plan du lidar passe en
+ * partie sous le meuble. Pour chaque meuble (objectGroups), on compte sur ses segments :
+ *  - les faisceaux qui s'arrêtent dessus (impact à moins de hitDist) ;
+ *  - les faisceaux qui le traversent (le faisceau coupe le segment et son impact est au moins
+ *    `behind` plus loin) : ils sont passés dessous, entre les roues ou les pieds.
+ * Un meuble posé au sol (armoire) arrête presque tous les faisceaux ; un meuble surélevé en laisse
+ * passer une bonne part. Les scans dont le robot est dans l'emprise du meuble sont ignorés :
+ * on juge le meuble vu de la salle.
+ * views : [{ pose, points }] (points dans le repère monde). Retourne une copie des segments ;
+ * les segments 'objet' reçoivent under (part des faisceaux passés dessous) et raised (booléen).
+ */
+export function markRaised(segments, views, options = {}) {
+  const o = { ...DEFAULT_RAISED, ...options };
+  const out = segments.map((s) => ({ ...s }));
+  for (const g of objectGroups(out)) {
+    const segs = g.map((k) => out[k]);
+    const box = {
+      minX: Math.min(...segs.flatMap((s) => [s.x1, s.x2])),
+      maxX: Math.max(...segs.flatMap((s) => [s.x1, s.x2])),
+      minY: Math.min(...segs.flatMap((s) => [s.y1, s.y2])),
+      maxY: Math.max(...segs.flatMap((s) => [s.y1, s.y2])),
+    };
+    let stop = 0;
+    let under = 0;
+    for (const { pose, points } of views) {
+      if (pose.x > box.minX && pose.x < box.maxX && pose.y > box.minY && pose.y < box.maxY) continue;
+      for (const p of points) {
+        const ray = { x1: pose.x, y1: pose.y, x2: p.x, y2: p.y };
+        const reach = length(ray);
+        for (const s of segs) {
+          if (pointSegmentDistance(s, p.x, p.y) <= o.hitDist) {
+            stop++;
+            break;
+          }
+          if (angleBetweenDeg(s, ray) < o.minCrossAngle) continue;
+          const r = intersect(s, ray);
+          const L = length(s);
+          if (r.type === 'point' && r.t * L >= o.endMargin && (1 - r.t) * L >= o.endMargin && (1 - r.u) * reach >= o.behind) {
+            under++;
+            break;
+          }
+        }
+      }
+    }
+    const ratio = stop + under ? under / (stop + under) : 0;
+    for (const s of segs) Object.assign(s, { under: ratio, raised: ratio >= o.minRatio });
+  }
+  return out;
 }

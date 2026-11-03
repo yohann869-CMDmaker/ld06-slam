@@ -20,7 +20,7 @@ scan (angle, distance)  ──► points du robot ──► points du monde ─�
 | Segments | `src/core/segmentation.js` | `clusterize`, `extractSegments`, `fitLine` |
 | Opérations sur segments | `src/core/geometry.js` | `angleBetweenDeg`, `areClose`, `mergeSegments`, `intersect`, `cutSegment` |
 | Carte vectorielle | `src/core/vectormap.js` | `VectorMap.integrateScan` |
-| Cartes propres, objets fixes, coins | `src/core/cleanup.js` | `cleanMaps`, `cleanGrid`, `cleanVectorMap`, `classifySegments`, `findCorners` |
+| Cartes propres, objets fixes, meubles surélevés, coins | `src/core/cleanup.js` | `cleanMaps`, `cleanGrid`, `cleanVectorMap`, `classifySegments`, `markRaised`, `findCorners` |
 | Recalage des scans | `src/core/matching.js` | `DistanceField`, `matchScan`, `icp`, `autoAlign` |
 | Localisation (jour 2) | `src/core/localization.js` | `localize` et les six méthodes |
 
@@ -126,6 +126,14 @@ Pour chaque scan :
   5. Les objets fixes sont redessinés dans la grid map propre (Bresenham le long du segment).
   Les cartes propres sont construites **sans découpe par les absences** : la découpe efface les
   meubles traversés par des faisceaux avant qu'ils aient pu être reconnus.
+- **Meubles surélevés** (`objectGroups`, `markRaised`) : une table sur roulettes ou un tableau sur
+  deux pieds laisse passer une partie des faisceaux dessous. Les segments reliés par leurs coins
+  forment un meuble ; sur ses segments, on compte les faisceaux qui s'arrêtent dessus (impact à
+  moins de 6 cm) et ceux qui le traversent (impact au moins 15 cm derrière, faisceau pas trop
+  rasant, pas au ras d'une extrémité). Les scans dont le robot est dans l'emprise du meuble sont
+  ignorés. Au-delà de 15 % de faisceaux passés dessous, le meuble est **surélevé** : pointillés
+  sur le plan (convention des plans d'architecte), cellules « occupées en partie » (p = 0,75,
+  gris) dans la grid map ; posé au sol : trait plein, cellules occupées (noir).
 - **Coins** : intersection de deux murs presque perpendiculaires dont les extrémités se
   rejoignent, avec la direction de la bissectrice (point d'intérêt orienté du cours).
 

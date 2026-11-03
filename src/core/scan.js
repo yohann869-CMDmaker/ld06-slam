@@ -259,6 +259,24 @@ export function scanToWorldXY(scan, pose = scan.pose, filter = DEFAULT_FILTER, o
   return transformPoints(scanToLocalXY(scan, filter, options), pose);
 }
 
+/**
+ * Réponse binaire de la route /scan du programme ESP32RobotControl (Wi-Fi), little-endian :
+ * pose x, y (int16, mm), θ (uint16, centièmes de degré), n (uint16), puis n points :
+ * angle (uint16, centièmes de degré, déjà antihoraire), distance (uint16, mm), intensité (uint8).
+ */
+export function parseRobotBinary(buffer, name = 'wifi') {
+  const v = new DataView(buffer instanceof ArrayBuffer ? buffer : buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
+  if (v.byteLength < 8) throw new Error('scan Wi-Fi : en-tête incomplet');
+  const n = v.getUint16(6, true);
+  if (n < 1 || n > 460 || v.byteLength !== 8 + 5 * n) throw new Error(`scan Wi-Fi : taille invalide (${v.byteLength} octets pour ${n} points)`);
+  const pose = { x: v.getInt16(0, true) / 1000, y: v.getInt16(2, true) / 1000, theta: v.getUint16(4, true) / 100 };
+  const points = [];
+  for (let k = 0, o = 8; k < n; k++, o += 5) {
+    points.push({ angle: v.getUint16(o, true) / 100, r: v.getUint16(o + 2, true) / 1000, intensity: v.getUint8(o + 4) });
+  }
+  return { name, pose, poseFound: false, points, format: 'robotcontrol-wifi', comments: [] };
+}
+
 /** Écrit un scan au format RobotControl (relisible par parseScanCSV). */
 export function serializeScanCSV(scan, pose = scan.pose) {
   const lines = [

@@ -6,7 +6,7 @@ grid map, carte vectorielle, puis (jours 2 et 3) scan matching et SLAM.
 
 **Pour reprendre le projet : [docs/passation.md](docs/passation.md)** (ce qui est fait, ce qui reste).
 
-Comptes rendus : [jour 1](docs/jour1.md), [jour 2](docs/jour2.md) ([banc d'essai](docs/jour2_benchmark.md), [localisation globale](docs/jour2_global.md), [données réelles](docs/jour2_reel.md)), [journal des erreurs et corrections](docs/journal.md), [jour 3 : SLAM](docs/jour3.md) ([banc d'essai](docs/jour3_slam.md)), [algorithmes expliqués](docs/algorithmes.md).
+Comptes rendus : [jour 1](docs/jour1.md), [jour 2](docs/jour2.md) ([banc d'essai](docs/jour2_benchmark.md), [localisation globale](docs/jour2_global.md), [données réelles](docs/jour2_reel.md)), [journal des erreurs et corrections](docs/journal.md), [jour 3 : SLAM](docs/jour3.md) ([banc d'essai](docs/jour3_slam.md)), [exploration autonome](docs/jour3_explore.md), [algorithmes expliqués](docs/algorithmes.md).
 
 ## Prérequis
 
@@ -115,6 +115,11 @@ Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
   se reconstruit scan par scan (trajectoire en bleu, boucles fermées).
 - **SLAM en direct** (robot en USB, `python scripts/live.py`) : cocher la case et déplacer doucement
   le robot ; un scan clé est ajouté tous les 20 cm ou 10° et la carte grandit en temps réel.
+- **Exploration autonome** (bonus) : **Exploration simulée** (salle de classe ou trois pièces) montre le
+  robot qui part sans carte et va seul vers les frontières entre le connu et l'inconnu ; **Explorer
+  avec le robot (Wi-Fi)** fait de même avec le vrai robot (programme `ESP32RobotControl.ino`, Wi-Fi
+  `RobotESP32`, IP `192.168.4.1`). **Échap** ou **Arrêt** coupe les moteurs. Sans robot :
+  `node scripts/mock-robot.mjs` puis IP `localhost:8090`.
 
 ## Ligne de commande
 
@@ -136,6 +141,8 @@ Autres scripts :
 | `node scripts/benchmark-jour2.mjs` | Banc d'essai de la localisation (`docs/jour2_benchmark.md`) |
 | `node scripts/benchmark-global.mjs` | Banc d'essai de la localisation globale, sans pose de départ (`docs/jour2_global.md`) |
 | `node scripts/benchmark-slam.mjs` | Banc d'essai du SLAM sur trajets simulés (`docs/jour3_slam.md`, figures `docs/img/j3_*.png`) |
+| `node scripts/benchmark-explore.mjs` | Banc d'essai de l'exploration autonome en simulation (`docs/jour3_explore.md`, figures `docs/img/j3_explo_*.png`) |
+| `node scripts/mock-robot.mjs` | Faux robot Wi-Fi (routes de ESP32RobotControl) pour essayer l'exploration sans le robot |
 | `node scripts/gen-trajet.mjs` | Trajet simulé pour essayer le SLAM dans l'application (`data/sim_trajet/`) |
 | `node scripts/benchmark-reel.mjs` | Banc d'essai sur données réelles : scans de la carte (sans eux) et jeu de test `data/test` (`docs/jour2_reel.md`) |
 | `node scripts/build-reference.mjs` | Carte de référence de la salle à partir de `data/real/` (`data/reference/`) |
@@ -172,5 +179,6 @@ node --test "test/*.test.js"
 | `localization.js` | Localisation d'un scan sur une référence (6 méthodes) |
 | `globalloc.js` | Localisation globale : pose retrouvée dans toute la salle, avec indice de confiance |
 | `slam.js` | SLAM : suivi sur carte locale, relocalisation, scans clés, fermeture de boucle |
+| `explore.js` | Exploration autonome : frontières, chemin, commandes du robot, étalonnage des vitesses |
 | `posegraph.js` | Graphe de poses (Graph-SLAM) : optimisation de Gauss-Newton, information par direction |
 | `refmap.js` | Carte de référence figée : enregistrement et relecture (JSON) |

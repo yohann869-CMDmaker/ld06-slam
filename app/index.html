@@ -177,6 +177,34 @@
     </section>
 
     <section>
+      <h2>Exploration autonome (bonus)</h2>
+      <div class="row">
+        <label class="inline">Scène
+          <select id="exploScene">
+            <option value="salle">Salle de classe</option>
+            <option value="pieces" selected>Trois pièces</option>
+          </select>
+        </label>
+        <button id="btnExploSim" title="Le robot simulé part sans carte et choisit seul où aller (méthode des frontières sur la carte du SLAM)">Exploration simulée</button>
+      </div>
+      <div class="grid3">
+        <label>IP du robot<input type="text" id="robotIp" value="192.168.4.1"></label>
+        <label>Vitesse (m/s)<input type="number" id="robotLin" step="0.01" value="0.25"></label>
+        <label>Rotation (°/s)<input type="number" id="robotAng" step="5" value="90"></label>
+      </div>
+      <div class="row">
+        <button id="btnExploRobot" class="primary-btn" title="Programme ESP32RobotControl, PC connecté au Wi-Fi RobotESP32">Explorer avec le robot (Wi-Fi)</button>
+        <button id="btnExploStop" title="Échap">Arrêt</button>
+      </div>
+      <p class="hint">Le robot part sans carte : à chaque pas, scan, SLAM, puis il va vers la frontière la plus
+        proche entre le connu et l'inconnu (vert), par le chemin le plus court (orange), loin des obstacles.
+        Robot : téléverser <code>ESP32RobotControl.ino</code>, se connecter au Wi-Fi <code>RobotESP32</code>,
+        poser le robot au sol, rester à côté (<strong>Échap</strong> ou « Arrêt » coupe les moteurs). Les vitesses
+        sont corrigées au fil des pas d'après le SLAM.</p>
+      <p class="stat" id="exploStat"></p>
+    </section>
+
+    <section>
       <h2>Exports du jour 1</h2>
       <div class="row">
         <button id="btnExportDay1" class="primary-btn">Exporter tout le jour 1</button>

@@ -159,6 +159,15 @@ direct 10/18 → 16/18.
 | Test de l'espace libre inutilisable sur les scans réels | Les scans pris en hauteur voient « vide » au-dessus des meubles | Gardé pour le SLAM en direct (trajet au sol, même hauteur) |
 | Cellule vue libre une fois non comptée | Seuil p < 0,2 alors qu'une observation donne 0,4 | Test sur la classe « libre » de la grid map |
 
+## Mercredi 4 novembre — jour 3, exploration autonome (bonus)
+
+| Problème | Cause | Correction |
+| --- | --- | --- |
+| Exploration des trois pièces arrêtée à 75 % de couverture | Frontières ignorées au-delà de 8 m du départ (garde-fou contre les vitres) | Limite portée à 12 m par défaut (taille d'une salle), 20 m pour la scène à trois pièces |
+| Scans d'une simulation précédente dessinés par-dessus la suivante | Les scans clés gardés dans la liste restaient affichés | Une nouvelle simulation retire les scans de la précédente et la carte vectorielle |
+| Scans clés de l'exploration avec le robot absents de la liste | La liste n'était pas redessinée | Sélection du nouveau scan (comme le SLAM en direct) |
+| Test « le but est la porte » en échec | La frontière la plus proche était un petit trou de la carte dans un coin de la première pièce : comportement normal | Test reformulé : la seconde pièce est vue comme frontière, le but est la zone la plus proche, le chemin ne traverse pas de mur |
+
 Ajouts après lecture des documents du cours : localisation sur trois références et six
 méthodes (dont le calcul direct inspiré de l'article « Mars Attacks! »), coins, oubli des
 segments rarement vus, banc d'essai chiffré du jour 2.

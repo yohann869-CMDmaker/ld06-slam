@@ -22,3 +22,24 @@ CORRIDOR.push(...rectangle(0, 4, 0.5, 5.2), ...rectangle(23.4, 6, 24, 6.8));
 
 /** Boucle de 54 m dans le couloir. */
 export const CORRIDOR_LOOP = [{ x: 1.5, y: 1.5 }, { x: 22.5, y: 1.5 }, { x: 22.5, y: 8.5 }, { x: 1.5, y: 8.5 }, { x: 1.5, y: 1.5 }];
+
+/**
+ * Trois pièces (exploration autonome) : une grande salle 7 m × 8 m, et à droite deux pièces
+ * 7 m × 4 m, reliées par des portes de 1 m. Depuis la grande salle, on ne voit presque rien des autres.
+ */
+export const ROOMS = [
+  ...rectangle(0, 0, 14, 8),
+  { x1: 7, y1: 0, x2: 7, y2: 3 }, // cloison verticale, porte entre y = 3 et 4
+  { x1: 7, y1: 4, x2: 7, y2: 8 },
+  { x1: 7, y1: 4, x2: 9.5, y2: 4 }, // cloison horizontale, porte entre x = 9,5 et 10,5
+  { x1: 10.5, y1: 4, x2: 14, y2: 4 },
+  ...rectangle(2.5, 3, 4.5, 4.5), // table
+  ...rectangle(0, 6.8, 2, 8), // armoire
+  ...rectangle(11.5, 1, 13, 2), // bureau
+  ...rectangle(8, 6.5, 9, 8), // étagère
+  ...rectangle(12.5, 5.5, 12.8, 5.8), // pilier
+];
+
+/** Polygones intérieurs des meubles des scènes (exclus du sol libre pour mesurer la couverture). */
+export const ROOMS_FURNITURE = [[2.5, 3, 4.5, 4.5], [0, 6.8, 2, 8], [11.5, 1, 13, 2], [8, 6.5, 9, 8], [12.5, 5.5, 12.8, 5.8]];
+export const CLASSROOM_FURNITURE = [[3.5, 3, 6, 4.4], [9.4, 1, 10, 2.6], [1, 7.3, 4, 8], [2, 1.2, 2.3, 1.5]];

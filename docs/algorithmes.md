@@ -267,3 +267,22 @@ plus un petit a priori) ; un lien pris dans un couloir est précis en travers, i
 
 Résultats : [jour3.md](jour3.md) et [jour3_slam.md](jour3_slam.md).
 
+### 15. Exploration autonome (`src/core/explore.js`, bonus)
+
+Méthode des frontières (Yamauchi, 1997) sur la grid map du SLAM. Les cellules occupées sont gonflées
+du rayon du robot plus une marge (17 + 8 cm) : le robot devient un point. Un parcours en largeur
+(8 voisins, sans couper les coins) part de la cellule du robot sur les cellules libres non gonflées.
+Une **frontière** est une cellule libre atteignable avec une voisine inconnue ; les frontières sont
+regroupées en zones (les zones de moins de 5 cellules sont du bruit). But : la cellule la plus
+proche de la zone la plus proche ; chemin : remontée des parents du parcours. Commande : le point le
+plus loin du chemin encore en vue directe, à 40 cm au plus ; si l'écart de cap dépasse 15°,
+tourner sur place (60° au plus), sinon avancer, sans dépasser l'obstacle le plus proche droit
+devant dans le dernier scan. Un but vers lequel on a envoyé 12 commandes sans l'atteindre est
+abandonné. Plus de frontière : la carte est finie.
+
+Robot réel : la commande devient une durée (`commandRequest` : distance ÷ vitesse, durée doublée
+pour les rotations car le programme ESP32 la divise par 2, plafond de 2 s) ; le mouvement commandé
+sert de prédiction au SLAM, et le mouvement mesuré par le SLAM corrige les vitesses
+(`updateSpeeds`, rapport borné à [0,5 ; 2] et lissé).
+
+Résultats : [jour3.md](jour3.md) et [jour3_explore.md](jour3_explore.md).

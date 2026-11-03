@@ -1,13 +1,14 @@
 // Application web : affichage de plusieurs scans, poses modifiables,
 // construction et mise à jour d'une grid map et d'une carte vectorielle.
 import { DEG, normalizeAngleDeg, poseError, transformPoints } from '../src/core/pose.js';
-import { looksElevated, parseScanCSV, scanToLocalXY, serializeScanCSV, setElevated, validPoints } from '../src/core/scan.js';
+import { looksElevated, parseRobotBinary, parseScanCSV, scanToLocalXY, serializeScanCSV, setElevated, validPoints } from '../src/core/scan.js';
+import { commandMotion, commandRequest, Explorer, simulateExploration, updateSpeeds } from '../src/core/explore.js';
 import { GridMap, gridFromScan, occupancyRGB, UNKNOWN_RGB } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { autoAlign, consistency, matchScan } from '../src/core/matching.js';
 import { cleanMaps, cleanVectorMap, dominantDirection, isPartlyOccupied, labelPositions, parseLabels } from '../src/core/cleanup.js';
 import { globalLocalize } from '../src/core/globalloc.js';
-import { Slam } from '../src/core/slam.js';
+import { relative, Slam } from '../src/core/slam.js';
 import { gridReference, localize, METHODS, METHODS_BY_REFERENCE, scanReference, vectorReference } from '../src/core/localization.js';
 import { dayOneExports, drawLabels, MAPTOOL, maptoolColor } from './figures.js';
 import { makeReferenceMap, parseReferenceMap, referenceBounds, serializeReferenceMap } from '../src/core/refmap.js';
@@ -727,6 +728,7 @@ function render() {
   drawMapLabels();
   drawGlobalCandidates();
   drawSlamTrack();
+  drawExplo();
   drawLive(s);
   renderStatus();
 }
@@ -1223,9 +1225,195 @@ function slamLiveStep() {
 
 function resetSlam() {
   Object.assign(state, { slam: null, slamTrack: null, slamLivePose: null });
+  Object.assign(explo, { plan: null, truth: null, scene: null });
   for (const e of state.scans) delete e.slamIndex;
   $('slamStat').textContent = 'SLAM réinitialisé : le prochain scan en direct fixe le repère (à la pose du scan sélectionné).';
   draw();
+}
+
+// ------------------------------------------------------------------ exploration autonome (bonus du jour 3)
+// src/core/explore.js : à chaque pas, scan → SLAM → frontière la plus proche → commande.
+// En simulation (scènes de scripts/lib/scenes.mjs) ou avec le vrai robot en Wi-Fi
+// (programme ESP32RobotControl : routes /scan, /forward, /rotateleft, /rotateright, /stop).
+
+const explo = { running: false, mode: null, plan: null, scene: null, truth: null };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const EXPLO_SCENES = {
+  salle: { name: 'CLASSROOM', start: { x: 1.5, y: 2.2, theta: 0 }, options: {} },
+  pieces: { name: 'ROOMS', start: { x: 1.5, y: 1.5, theta: 0 }, options: { explore: { maxRange: 20 } } },
+};
+
+function exploStat(msg) {
+  $('exploStat').textContent = msg;
+}
+
+/** Scène simulée (murs vrais en gris), chemin prévu (orange), zones frontières (vert), robot vrai (gris). */
+function drawExplo() {
+  if (!explo.scene && !explo.plan) return;
+  ctx.save();
+  if (explo.scene) {
+    ctx.strokeStyle = 'rgba(29,35,39,0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    strokeSegments(explo.scene);
+    ctx.setLineDash([]);
+  }
+  const plan = explo.plan;
+  if (plan && !plan.done) {
+    ctx.strokeStyle = '#f08c00';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    plan.path.forEach((p, k) => (k ? ctx.lineTo(sx(p.x), sy(p.y)) : ctx.moveTo(sx(p.x), sy(p.y))));
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(47,158,68,0.85)';
+    for (const f of plan.frontiers) {
+      ctx.beginPath();
+      ctx.arc(sx(f.x), sy(f.y), 4 + Math.min(6, f.size / 10), 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  }
+  if (explo.truth) drawRobot({ pose: explo.truth, color: '#adb5bd' }, false);
+  ctx.restore();
+}
+
+function viewBox(segments) {
+  const xs = segments.flatMap((s) => [s.x1, s.x2]);
+  const ys = segments.flatMap((s) => [s.y1, s.y2]);
+  state.view.x = (Math.min(...xs) + Math.max(...xs)) / 2;
+  state.view.y = (Math.min(...ys) + Math.max(...ys)) / 2;
+  state.view.scale = 0.9 * Math.min(W() / (Math.max(...xs) - Math.min(...xs) + 1), H() / (Math.max(...ys) - Math.min(...ys) + 1));
+}
+
+/** Scans clés de l'exploration ajoutés à la liste, à leur pose estimée (cartes, exports). */
+function keepKeyframes(slam) {
+  for (const kf of slam.keyframes) {
+    const entry = addScan(kf.scan);
+    entry.pose = { ...kf.pose };
+    entry.exploSim = true;
+  }
+  renderScanList();
+  poseChanged();
+}
+
+/** Exploration simulée, animée pas à pas. */
+async function runExploSim() {
+  if (explo.running) return stopExplo();
+  const sc = EXPLO_SCENES[$('exploScene').value];
+  const scenes = await import('../scripts/lib/scenes.mjs');
+  // les scans d'une simulation précédente (autre scène) ne doivent pas se superposer à celle-ci
+  state.scans = state.scans.filter((e) => !e.exploSim);
+  if (state.selected?.exploSim) state.selected = null;
+  renderScanList();
+  setVector(null);
+  resetSlam();
+  Object.assign(explo, { running: true, mode: 'sim', plan: null, truth: null, scene: scenes[sc.name] });
+  $('btnExploSim').textContent = 'Arrêter la simulation';
+  viewBox(explo.scene);
+  const t0 = performance.now();
+  let last = null;
+  for (const s of simulateExploration(explo.scene, sc.start, sc.options)) {
+    if (!explo.running) break;
+    last = s;
+    Object.assign(explo, { plan: s.plan, truth: s.truth });
+    state.slamTrack = s.slam.trajectory.map((t) => t.pose);
+    state.slamLivePose = s.slam.last;
+    const err = Math.hypot(s.truth.x - s.slam.last.x, s.truth.y - s.slam.last.y);
+    exploStat(`Pas ${s.step} · ${s.distance.toFixed(1)} m parcourus · ${s.slam.keyframes.length} scans clés · ${s.plan.frontiers.length} zone(s) frontière · erreur de pose ${(100 * err).toFixed(1)} cm${s.collisions ? ` · ${s.collisions} collision(s)` : ''}`);
+    setGrid(s.slam.grid);
+    await tick();
+  }
+  explo.running = false;
+  $('btnExploSim').textContent = 'Exploration simulée';
+  if (last?.plan.done) {
+    exploStat(`${$('exploStat').textContent} · terminé en ${((performance.now() - t0) / 1000).toFixed(0)} s : ${last.plan.reason}`);
+    keepKeyframes(last.slam);
+  }
+  draw();
+}
+
+/** Requête au robot (route du programme ESP32RobotControl), délai de 3 s. */
+async function robotGet(path, binary = false) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3000);
+  try {
+    const res = await fetch(`http://${$('robotIp').value.trim()}${path}`, { signal: ctrl.signal, cache: 'no-store' });
+    if (!res.ok) throw new Error(`robot : ${path} → HTTP ${res.status}`);
+    return binary ? await res.arrayBuffer() : await res.text();
+  } catch (err) {
+    throw err.name === 'AbortError' || err instanceof TypeError ? new Error(`robot injoignable (${path}) : Wi-Fi RobotESP32 connecté ? IP ?`) : err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Exploration avec le vrai robot : scan Wi-Fi → SLAM (avec le mouvement commandé comme
+ * prédiction) → commande → attente de la fin du mouvement et d'un tour de lidar neuf. S'arrête si
+ * le SLAM perd le robot (sécurité), sur « Arrêt » ou Échap, ou quand la carte est finie.
+ */
+async function runExploRobot() {
+  if (explo.running) return stopExplo();
+  Object.assign(explo, { running: true, mode: 'robot', plan: null, truth: null, scene: null });
+  const slam = (state.slam ??= new Slam());
+  const explorer = new Explorer();
+  let speeds = { linear: Number($('robotLin').value), angular: Number($('robotAng').value) };
+  let odom = null;
+  let lastCmd = null;
+  let prevPose = null;
+  let steps = 0;
+  try {
+    while (explo.running) {
+      const scan = parseRobotBinary(await robotGet('/scan', true), captureName());
+      const first = slam.keyframes.length ? null : state.selected?.pose ?? { x: 0, y: 0, theta: 0 };
+      const r = slam.addScan(scan, odom, first);
+      if (r.mode === 'perdu') throw new Error('SLAM perdu : le scan ne colle plus à la carte, exploration arrêtée');
+      // étalonnage : mouvement mesuré par le SLAM contre mouvement commandé
+      if (lastCmd && r.mode === 'suivi' && r.inliers >= 0.7) {
+        speeds = updateSpeeds(speeds, lastCmd, relative(prevPose, r.pose));
+        $('robotLin').value = speeds.linear.toFixed(3);
+        $('robotAng').value = speeds.angular.toFixed(0);
+      }
+      if (r.keyframe) {
+        const entry = addScan(scan);
+        entry.pose = { ...r.pose };
+        entry.slamIndex = r.index;
+        select(entry);
+      }
+      if (r.loop) for (const e of state.scans) if (e.slamIndex != null) e.pose = { ...slam.trajectory[e.slamIndex].pose };
+      if (r.keyframe || r.loop) poseChanged();
+      state.slamTrack = slam.keyframes.map((kf) => kf.pose);
+      state.slamLivePose = r.pose;
+      const plan = explorer.next(slam.grid, slam.last, scanToLocalXY(scan, filterOpts()));
+      explo.plan = plan;
+      draw();
+      if (plan.done) {
+        exploStat(`Exploration terminée après ${steps} pas : ${plan.reason}.`);
+        break;
+      }
+      const req = commandRequest(plan.command, speeds);
+      exploStat(`Pas ${++steps} · ${slam.keyframes.length} scans clés · ${r.mode} (${Math.round(100 * r.inliers)} %) · ${req.route} ${Math.round(req.duration)} ms · ${plan.frontiers.length} zone(s) frontière`);
+      if (!explo.running) break;
+      await robotGet(`/${req.route}?time=${req.time}`);
+      lastCmd = req.command;
+      odom = commandMotion(req.command);
+      prevPose = r.pose;
+      await sleep(req.duration + 400); // fin du mouvement, puis quelques tours de lidar robot arrêté
+    }
+  } catch (err) {
+    robotGet('/stop').catch(() => {});
+    exploStat(`Arrêt : ${err.message}`);
+    toast(err.message);
+  } finally {
+    explo.running = false;
+    draw();
+  }
+}
+
+function stopExplo() {
+  if (explo.mode === 'robot') robotGet('/stop').catch((err) => toast(err.message));
+  explo.running = false;
+  exploStat('Exploration arrêtée.');
 }
 
 /** Toutes les méthodes depuis la même pose initiale ; la pose du scan n'est pas modifiée. */
@@ -1430,6 +1618,10 @@ canvas.addEventListener('wheel', (ev) => {
 }, { passive: false });
 
 window.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && explo.running) {
+    stopExplo();
+    return;
+  }
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName) || $('pasteDialog').open) return;
   if (ev.key === ' ' && live.scan) {
     ev.preventDefault();
@@ -1505,6 +1697,9 @@ $('btnGlobal').onclick = runGlobal;
 $('btnLocExport').onclick = exportLocLog;
 $('btnSlam').onclick = runSlamScans;
 $('btnSlamReset').onclick = resetSlam;
+$('btnExploSim').onclick = runExploSim;
+$('btnExploRobot').onclick = runExploRobot;
+$('btnExploStop').onclick = stopExplo;
 $('slamLive').onchange = () => {
   $('slamStat').textContent = $('slamLive').checked
     ? 'SLAM en direct : déplacer doucement le robot ; un scan clé est ajouté tous les 20 cm ou 10°.'

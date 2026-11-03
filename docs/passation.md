@@ -7,7 +7,7 @@ Fichier à lire en premier pour reprendre le projet (personne ou IA). Mis à jou
   historique, outils + instructions, synthèse personnelle).
 - Langage : JavaScript pur (Node 22+, aucune dépendance) ; application web `node serve.mjs`
   (port 8080, ou 8081 s'il est pris) ; tests `node --test "test/*.test.js"` (110 tests, tous verts
-  le 4 novembre).
+  le 4 novembre ; 118 depuis l'exploration autonome).
 - Le dossier `ld06-slam/ld06-slam/` (non suivi) est un clone vide (« Initial commit ») sans
   rapport avec le projet : à ignorer ou supprimer.
 
@@ -23,6 +23,7 @@ Fichier à lire en premier pour reprendre le projet (personne ou IA). Mis à jou
 | 2 | Localisation sur grid map, carte vectorielle, scan de référence + évaluation chiffrée | Fait : 6 méthodes (brute force, gradient, multi-résolution, probabiliste, ICP, calcul direct), banc d'essai simulé et réel, sensibilité à l'initialisation, localisation globale | `src/core/localization.js`, `globalloc.js`, `docs/jour2*.md` |
 | 3 | SLAM (localisation + cartographie simultanées) | Fait : suivi sur carte locale, relocalisation, scans clés, graphe de poses Gauss-Newton avec fermeture de boucle ; validé en simulation (salle : 0,6 cm ; couloir 54 m : 27 cm avec boucle) | `src/core/slam.js`, `posegraph.js`, `docs/jour3*.md` |
 | 3 | Carte complète de la salle | Carte de référence faite à partir des 18 scans réels recalés (`data/reference/`) ; **pas encore** produite par le SLAM lui-même | voir « À faire » |
+| 3 | Bonus : déplacer le robot automatiquement | Fait en simulation : exploration par frontières sur la carte du SLAM (6 départs sur 6 réussis, couverture 98-100 %, 0 collision, 1-2 cm d'erreur) ; pilotage Wi-Fi du vrai robot (ESP32RobotControl) avec étalonnage automatique des vitesses, vérifié avec un faux robot (`scripts/mock-robot.mjs`) ; **pas encore essayé sur le vrai robot** | `src/core/explore.js`, `docs/jour3.md` (§ Bonus), `docs/jour3_explore.md` |
 
 Comptes rendus : `docs/jour1.md`, `docs/jour2.md`, `docs/jour3.md` ; algorithmes expliqués :
 `docs/algorithmes.md` ; erreurs rencontrées et corrections : `docs/journal.md`.
@@ -34,22 +35,28 @@ le vrai robot.
 
 ## À faire pour le rendu (par priorité)
 
-1. **SLAM en direct sur le robot en salle** (prochaine séance avec le robot) : `python
-   scripts/live.py`, case « SLAM en direct », pousser le robot lentement au sol sur une boucle
-   dans la salle. Enregistrer les scans clés, exporter la carte (grid + vectorielle), comparer
-   à la carte de référence (écart des murs, cohérence au retour). Ajouter le résultat et les
-   figures à `docs/jour3.md`.
-2. **Incertitude des références réelles** : recaler deux fois les mêmes scans (énoncé jour 2 :
-   « indiquez l'incertitude des références mesurées sur le robot »). Vérifier ce qui est déjà
-   dans `docs/jour2_reel.md` et compléter si besoin.
+1. **Carte de la salle par SLAM avec le vrai robot** (prochaine séance avec le robot ; c'est ce
+   qui manque pour finir le jour 3). Deux façons, la seconde est le bonus :
+   - USB : `python scripts/live.py`, case « SLAM en direct », pousser le robot lentement au sol
+     sur une boucle dans la salle ;
+   - Wi-Fi : téléverser `ESP32RobotControl.ino` (Ressources, Tools/RobotControl), connecter le PC
+     au Wi-Fi `RobotESP32`, `node serve.mjs`, bouton « Explorer avec le robot (Wi-Fi) », rester à
+     côté (Échap = arrêt). Mesurer d'abord à peu près la vitesse du robot (cm parcourus en 1 s)
+     pour remplir les champs ; ils se corrigent ensuite tout seuls.
+   Puis enregistrer les scans clés, exporter la carte (grid + vectorielle), comparer à la carte
+   de référence (écart des murs, cohérence au retour), ajouter résultats et figures à
+   `docs/jour3.md` (remplacer la mention « pas encore essayé sur le vrai robot »).
+2. **Incertitude des références réelles** : déjà mesurée (± 2,0 cm et 0,28° en médiane, voir
+   `docs/jour2_reel.md`) ; rien à faire sauf vérification.
 3. **Synthèse finale** `docs/synthese.md` (exigée par le livrable) : pour chaque outil, résultats
    visuels, choix, fonctionnalités, méthodes ; puis ce que j'ai apprécié, moins apprécié, ce que
    j'améliorerais. S'appuyer sur les comptes rendus existants ; la partie personnelle doit être
    écrite ou validée par Yohan.
 4. **Livrable** : script ou instructions pour produire le `.zip` (lien GitHub + copie du dépôt
    avec `.git`, README à jour).
-5. Bonus (facultatif) : déplacement automatique du robot (exploration simple, ex. suivi de mur ou
-   frontières de la grid map) pendant le SLAM en direct, via le Wi-Fi de l'ESP32 / RobotControl.
+5. Améliorations possibles de l'exploration (facultatif) : choisir la zone frontière selon sa
+   taille et sa distance (moins d'allers-retours), utiliser les translations latérales du
+   Mecanum, limiter l'exploration à une zone dessinée à la main (vitres).
 
 ## Idée pour plus tard : une application pour aider les étudiants
 

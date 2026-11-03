@@ -98,3 +98,60 @@ un recalage commun (jour 2).
 - **SLAM en direct** (robot en USB, `python scripts/live.py`) : cocher la case puis pousser ou
   piloter doucement le robot ; chaque scan reçu est localisé, un scan clé est ajouté à la liste
   tous les 20 cm ou 10°, la carte grandit et la pose du robot est suivie en temps réel.
+
+## Bonus : exploration autonome
+
+Le robot construit la carte **seul** : à chaque pas, scan, SLAM, puis choix de la commande par la
+**méthode des frontières** (Yamauchi, 1997) sur la grid map du SLAM
+([algorithmes.md § 15](algorithmes.md)). Code : `src/core/explore.js` ; banc d'essai :
+`scripts/benchmark-explore.mjs` ([jour3_explore.md](jour3_explore.md)).
+
+1. Les obstacles de la grid map sont gonflés du rayon du robot (17 cm) plus 8 cm de marge.
+2. Un parcours en largeur depuis le robot sur les cellules libres donne la distance de chaque
+   cellule atteignable et le chemin le plus court.
+3. Les **frontières** (cellules libres voisines de l'inconnu) sont regroupées en zones ; le robot va
+   vers la plus proche, par le chemin le plus court.
+4. Commande simple, celle du robot Mecanum : tourner sur place vers le point visé (au plus 60°),
+   puis avancer de 40 cm au plus, sans dépasser l'obstacle le plus proche vu droit devant dans le
+   dernier scan.
+5. Plus de frontière atteignable : la carte est finie.
+
+### Résultats en simulation (pose vraie connue)
+
+Mouvement vrai entaché d'erreurs (10 % sur la distance et l'angle, glissement latéral, 1,5° de
+dérive de cap par mètre), le SLAM ne reçoit que la commande.
+
+| Scène | Départs réussis | Couverture | Collisions | Erreur de pose (ATE) | Pas / distance |
+| --- | --- | --- | --- | --- | --- |
+| Salle de classe 10 m × 8 m | 3 / 3 | 100 % | 0 | 0,7 à 1,2 cm | 30 à 38 pas, 7 à 9 m |
+| Trois pièces reliées par des portes de 1 m | 3 / 3 | 98,3 à 100 % | 0 | 1,5 à 1,9 cm | 102 à 134 pas, 27 à 33 m |
+
+| Trois pièces : exploration en cours (frontières en vert, chemin prévu en orange) | Carte finale |
+| --- | --- |
+| ![en cours](img/j3_explo_pieces_en_cours.png) | ![finale](img/j3_explo_pieces.png) |
+
+- La frontière la plus proche n'est pas toujours la plus utile : le robot fait parfois des
+  allers-retours entre deux pièces (trajet de 27 à 33 m pour une surface de 112 m²). Choisir la
+  zone selon sa taille et sa distance réduirait le trajet.
+- Le robot passe par les portes de 1 m sans les toucher : 1 m − 2 × 25 cm laisse un couloir de
+  50 cm au centre du robot.
+
+### Avec le vrai robot (Wi-Fi)
+
+Section **Exploration autonome** de l'application, bouton **Explorer avec le robot (Wi-Fi)** :
+programme `ESP32RobotControl.ino` du module, PC connecté au Wi-Fi `RobotESP32`. Chaque pas :
+`/scan` (binaire, décodé par `parseRobotBinary`), SLAM avec le mouvement commandé comme
+prédiction, commande `/forward?time=…` ou `/rotateleft?time=…`, attente de la fin du mouvement et
+de quelques tours de lidar robot arrêté. Le robot n'a pas de codeurs : la durée est calculée avec
+une vitesse estimée, **corrigée à chaque pas** d'après le déplacement mesuré par le SLAM.
+Sécurité : arrêt si le SLAM perd le robot, bouton **Arrêt** et touche **Échap** (`/stop`).
+
+Sans le robot, `node scripts/mock-robot.mjs` imite ses routes HTTP dans une scène simulée (IP du
+robot : `localhost:8090`). Essai : la salle simulée est cartographiée en 28 pas ; les vitesses,
+parties de 0,25 m/s et 90 °/s, convergent vers 0,31 m/s et 72 °/s pour des vitesses vraies de
+0,32 m/s et 75 °/s.
+
+**Pas encore essayé sur le vrai robot** : à faire à la prochaine séance, en restant à côté du robot.
+Limites attendues : les vitres (faisceaux qui sortent de la salle : frontières ignorées au-delà de
+12 m du départ), les pieds de chaises et de tables fins, vus par peu de points, et la durée des
+commandes, très approximative au début.

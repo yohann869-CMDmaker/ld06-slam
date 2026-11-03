@@ -9,6 +9,7 @@ export const MAPTOOL = Object.freeze({
   floor: '#ffffff',
   wall: '#000000',
   segment: '#ef4444',
+  object: '#7048e8', // objets fixes (table, armoire, tableau) : violet, distinct des murs
   gridLine: '#d1d5db',
 });
 
@@ -329,22 +330,25 @@ export async function dayOneExports(d) {
     drawRobots(ctx, X, Y, d.scans);
   }));
 
+  const walls = d.vectorClean.segments.filter((s) => s.kind !== 'objet');
+  const objects = d.vectorClean.segments.filter((s) => s.kind === 'objet');
   await add('06_carte_vectorielle_propre.png', figure(clean, {
     title: 'Carte vectorielle propre',
-    subtitle: sub(`${d.vectorClean.segments.length} segments : murs redressés (direction ${d.vectorClean.dominant.toFixed(1)}°), fusionnés, coins fermés`),
-    legend: [[MAPTOOL.segment, 'segment'], ['#f59e0b', `coin (${d.corners.length})`], [MAPTOOL.floor, 'sol']],
+    subtitle: sub(`${walls.length} segments de murs redressés (direction ${d.vectorClean.dominant.toFixed(1)}°) et ${objects.length} d'objets fixes`),
+    legend: [[MAPTOOL.segment, 'mur'], [MAPTOOL.object, 'objet fixe (meuble)'], ['#f59e0b', `coin (${d.corners.length})`], [MAPTOOL.floor, 'sol']],
     dark: true,
   }, (ctx, X, Y) => {
     drawGrid(ctx, X, Y, d.gridClean, (k) => (d.gridClean.classify(k) === -1 ? [255, 255, 255] : null));
     metricLines(ctx, X, Y, clean, 'rgba(209,213,219,0.35)');
-    drawSegments(ctx, X, Y, d.vectorClean.segments, MAPTOOL.segment, 4);
+    drawSegments(ctx, X, Y, walls, MAPTOOL.segment, 4);
+    drawSegments(ctx, X, Y, objects, MAPTOOL.object, 4);
     drawCorners(ctx, X, Y, d.corners);
   }));
 
   await add('07_plan_de_la_salle.png', figure(clean, {
     title: 'Plan de la salle',
     subtitle: sub('grid map propre + carte vectorielle propre'),
-    legend: [[MAPTOOL.floor, 'sol'], ['#1d2327', 'murs et meubles'], ['#f59e0b', 'coins']],
+    legend: [[MAPTOOL.floor, 'sol'], ['#1d2327', 'murs'], [MAPTOOL.object, 'objets fixes (meubles)'], ['#f59e0b', 'coins']],
     background: '#d6dbe0',
   }, (ctx, X, Y) => {
     drawGrid(ctx, X, Y, d.gridClean, (k) => {
@@ -352,7 +356,8 @@ export async function dayOneExports(d) {
       return c === -1 ? [255, 255, 255] : c === 1 ? [134, 142, 150] : null;
     });
     metricLines(ctx, X, Y, clean, 'rgba(29,35,39,0.07)');
-    drawSegments(ctx, X, Y, d.vectorClean.segments, '#1d2327', 5);
+    drawSegments(ctx, X, Y, walls, '#1d2327', 5);
+    drawSegments(ctx, X, Y, objects, MAPTOOL.object, 5);
     drawCorners(ctx, X, Y, d.corners);
     drawRobots(ctx, X, Y, d.scans);
   }));

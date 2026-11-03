@@ -5,7 +5,7 @@ import { parseScanCSV, scanToLocalXY, serializeScanCSV, validPoints } from '../s
 import { GridMap, gridFromScan, occupancyRGB, UNKNOWN_RGB } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { autoAlign, consistency, matchScan } from '../src/core/matching.js';
-import { cleanGrid, cleanVectorMap, findCorners, segmentsNearFloor } from '../src/core/cleanup.js';
+import { cleanMaps } from '../src/core/cleanup.js';
 import { gridReference, localize, METHODS, METHODS_BY_REFERENCE, scanReference, vectorReference } from '../src/core/localization.js';
 import { dayOneExports, MAPTOOL, maptoolColor } from './figures.js';
 import { makeReferenceMap, parseReferenceMap, referenceBounds, serializeReferenceMap } from '../src/core/refmap.js';
@@ -463,7 +463,7 @@ function vecParams() {
 function setVector(m, info = '') {
   state.vector = m;
   $('vecStat').textContent = m ? `${m.segments.length} segments · ${m.scanCount} scan(s)${info ? ' · ' + info : ''}` : '';
-  refreshClean({ grid: false });
+  refreshClean();
   draw();
 }
 
@@ -559,18 +559,8 @@ function render() {
       ctx.drawImage(state.gridCleanImage, sx(g.originX), sy(g.originY + g.height * g.res), g.width * g.res * s, g.height * g.res * s);
     }
     if ($('showMetric').checked) drawMetricGrid();
-    if (showRef && !state.vectorClean) {
-      ctx.strokeStyle = MAPTOOL.segment;
-      ctx.lineWidth = 3;
-      ctx.lineCap = 'round';
-      strokeSegments(refmap.map.segments);
-    }
-    if (state.vectorClean) {
-      ctx.strokeStyle = MAPTOOL.segment;
-      ctx.lineWidth = 3;
-      ctx.lineCap = 'round';
-      strokeSegments(state.vectorClean.segments);
-    }
+    if (showRef && !state.vectorClean) strokeCleanSegments(refmap.map.segments);
+    if (state.vectorClean) strokeCleanSegments(state.vectorClean.segments);
     drawCorners();
     for (const e of state.scans.filter((v) => v.visible)) drawRobot(e, e === state.selected);
     drawLive(s);
@@ -688,19 +678,44 @@ function cleanGridImage(g) {
   return off;
 }
 
-/** Versions propres des cartes (recalculées à chaque reconstruction). */
-function refreshClean({ grid = true } = {}) {
-  if (grid) {
-    state.gridCleanImage = null;
-    state.gridClean = state.grid ? cleanGrid(state.grid, state.scans.filter((e) => e.visible).map((e) => e.pose)) : null;
-  }
+/**
+ * Versions propres des cartes (recalculées à chaque reconstruction) : murs et objets fixes
+ * (table, armoire...), voir cleanMaps. La carte vectorielle propre part de segments SANS
+ * découpe par les absences : la découpe efface les meubles que des faisceaux traversent
+ * (sous une table, entre ses pieds) avant qu'ils aient pu être reconnus.
+ */
+function refreshClean() {
+  state.gridCleanImage = null;
+  state.gridClean = null;
   state.vectorClean = null;
-  if (state.vector && state.gridClean) {
-    const cv = cleanVectorMap(state.vector.segments, { minObservations: Math.max(1, Number($('vecMinObs').value) || 1) });
-    cv.segments = segmentsNearFloor(cv.segments, state.gridClean);
-    state.vectorClean = cv;
-    state.corners = findCorners(cv.segments);
+  state.corners = null;
+  if (!state.grid) return;
+  const vis = state.scans.filter((e) => e.visible);
+  let segments = [];
+  if (state.vector && !state.vector.params.absence) segments = state.vector.segments;
+  else if (state.vector) {
+    const m = new VectorMap([], { ...vecParams(), absence: false });
+    for (const e of vis) m.integrateScan(...integrateOpts(e));
+    segments = m.segments;
   }
+  const c = cleanMaps(state.grid, segments, vis.map((e) => e.pose), {
+    vector: { minObservations: Math.max(1, Number($('vecMinObs').value) || 1) },
+  });
+  state.gridClean = c.grid;
+  if (state.vector) {
+    state.vectorClean = { segments: c.segments, dominant: c.dominant };
+    state.corners = c.corners;
+  }
+}
+
+/** Segments propres : murs en rouge (comme MapTool), objets fixes (meubles) en violet. */
+function strokeCleanSegments(segs) {
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = MAPTOOL.segment;
+  strokeSegments(segs.filter((s) => s.kind !== 'objet'));
+  ctx.strokeStyle = MAPTOOL.object;
+  strokeSegments(segs.filter((s) => s.kind === 'objet'));
 }
 
 /** Coins (points d'intérêt) de la carte vectorielle propre : losanges orange, comme le tracé en cours de MapTool. */
@@ -737,7 +752,7 @@ function setReferenceMap(map) {
   $('locRef').value = 'refvector';
   fillMethods();
   // multi-résolution : 17 scans réels sur 18 relocalisés à moins de 5 cm et 2° depuis un départ
-  // à 29 cm et 8° ; le calcul direct, local, décroche au-delà de sa marge de 25 cm
+  // à 29 cm et 8° ; le calcul direct, local, en rate 2 (au-delà de sa marge de 25 cm)
   $('locMethod').value = 'multires';
   if (!state.scans.length) fitView();
   draw();
@@ -1153,7 +1168,7 @@ $('locRef').onchange = fillMethods;
 $('btnLocalize').onclick = runLocalize;
 $('btnCompare').onclick = runCompare;
 $('vecMinObs').onchange = () => {
-  refreshClean({ grid: false });
+  refreshClean();
   draw();
 };
 $('btnSaveAll').onclick = saveAll;

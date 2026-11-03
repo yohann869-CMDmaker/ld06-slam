@@ -87,6 +87,19 @@ Choix : JavaScript (modules ES) sans dépendance, même code pour l'application 
 | Recalage commun qui semblait prendre plus de 10 min | Script de préparation lancé avec une entrée standard redirigée deux fois (bloqué en attente) | Script écrit dans un fichier puis lancé : le recalage de 18 scans prend 2 s |
 | Calcul direct moins bon sur la nouvelle carte (10/18) | Méthode locale (marge 25 cm), plus de segments voisins où se tromper | Multi-résolution par défaut avec la carte de référence (17/18) |
 
+### Meubles fixes absents de la vue propre (remarque de Yohan)
+
+| Problème | Cause | Correction |
+| --- | --- | --- |
+| Table du milieu, armoire et tableau invisibles dans la vue propre | Grid map : des faisceaux d'autres scans passent sous la table et effacent ses cellules (17 cellules occupées pour 8 m de contour), puis le nettoyage retire ces restes comme des poussières | Objets fixes : segments vus par au moins 2 scans, redessinés dans la grid map propre (`classifySegments`, `drawObjects`) |
+| Segments des meubles effacés dans l'application | La gestion des absences (cochée par défaut) découpe les segments traversés par des faisceaux : table 8,3 m → 0,2 m | Cartes propres construites sans découpe par les absences (`cleanMaps`) ; la carte brute garde la découpe |
+| Une face de l'armoire, vue par un seul scan, retirée | Règle des 2 scans | Une face qui forme un coin avec un segment gardé est gardée |
+| Première règle « mur = posé sur les murs de la grid » | Un meuble gardé par la grid était classé mur (armoire à moitié rouge, table rouge en simulation) | Mur = segment qui borde l'extérieur de la salle (cellules inconnues reliées au bord de la carte) |
+| Fusion du nettoyage qui additionnait les observations | `mergeSegments` additionne : deux morceaux vus par le même scan comptaient 2 | Union des scans distincts, comme dans `VectorMap.addSegment` |
+
+Effet sur la localisation (18 scans, départ à 29 cm et 8°) : grid map 13/18 → 18/18, calcul
+direct 10/18 → 16/18.
+
 Ajouts après lecture des documents du cours : localisation sur trois références et six
 méthodes (dont le calcul direct inspiré de l'article « Mars Attacks! »), coins, oubli des
 segments rarement vus, banc d'essai chiffré du jour 2.

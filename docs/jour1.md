@@ -325,6 +325,12 @@ autre scan passe de 45 % (poses manuelles) à 60 % ; un scan décalé de 60 cm �
   des morceaux d'un même mur, coins fermés, segments hors de la pièce retirés, **oubli des
   segments rarement vus** (option « vus par au moins N scans », comme la carte SLAM de la
   présentation RoboCup qui oublie les segments rarement observés) ;
+- **murs et objets fixes** : un segment qui borde l'extérieur de la salle est un mur ; un autre
+  segment vu par au moins 2 scans (ou relié par un coin à un segment gardé) est un **objet fixe**
+  (table du milieu, armoire, tableau), dessiné en violet et redessiné dans la grid map propre ;
+  le fouillis vu par un seul scan (chaises, sacs) est retiré. Sans cette étape, la table et le
+  tableau disparaissaient de la carte propre : les faisceaux d'autres scans passent sous la
+  table et effacent ses cellules dans la grid map ;
 - **coins** (points d'intérêt orientés du document « carte vectorielle ») : intersection de deux
   murs presque perpendiculaires qui se rejoignent, avec la direction de la bissectrice.
 

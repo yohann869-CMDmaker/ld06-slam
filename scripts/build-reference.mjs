@@ -11,7 +11,7 @@ import { parseScanCSV, scanToLocalXY } from '../src/core/scan.js';
 import { gridFromScan } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { autoAlign, consistency } from '../src/core/matching.js';
-import { cleanGrid, cleanVectorMap, findCorners, segmentsNearFloor } from '../src/core/cleanup.js';
+import { cleanMaps } from '../src/core/cleanup.js';
 import { makeReferenceMap, referenceBounds, serializeReferenceMap } from '../src/core/refmap.js';
 import { hex, Raster } from './lib/raster.mjs';
 
@@ -36,15 +36,15 @@ const before = mean(consistency(items.map((i) => i.points), items.map((i) => i.p
 const after = mean(consistency(items.map((i) => i.points), poses));
 
 // 3. cartes brutes puis propres (sans découpe par les faisceaux : sur données réelles, une petite
-//    erreur de pose suffirait à découper des murs)
+//    erreur de pose suffirait à découper des murs, et les meubles seraient effacés)
 const grid = gridFromScan(scans[0], poses[0]);
 scans.slice(1).forEach((s, k) => grid.integrateScan(s, poses[k + 1]));
 const vm = new VectorMap([], { absence: false });
 scans.forEach((s, k) => vm.integrateScan(s, poses[k]));
-const gridClean = cleanGrid(grid, poses);
-const vc = cleanVectorMap(vm.segments);
-vc.segments = segmentsNearFloor(vc.segments, gridClean);
-const corners = findCorners(vc.segments);
+const vc = cleanMaps(grid, vm.segments, poses);
+const gridClean = vc.grid;
+const corners = vc.corners;
+const objects = vc.segments.filter((s) => s.kind === 'objet');
 
 // 4. enregistrement
 const ref = makeReferenceMap({
@@ -75,7 +75,7 @@ for (let j = 0; j < gridClean.height; j++) {
   }
 }
 img.metric(1);
-for (const s of vc.segments) img.line(s.x1, s.y1, s.x2, s.y2, hex('#1d2327'), 4);
+for (const s of vc.segments) img.line(s.x1, s.y1, s.x2, s.y2, hex(s.kind === 'objet' ? '#7048e8' : '#1d2327'), 4);
 for (const c of corners) img.dot(c.x, c.y, 5, hex('#f59e0b'));
 poses.forEach((p) => img.robot(p, hex('#1c7ed6'), 5));
 await mkdir(ROOT + 'docs/img', { recursive: true });
@@ -84,6 +84,6 @@ await writeFile(ROOT + 'docs/img/j2_carte_reference.png', img.png());
 const st = gridClean.stats();
 console.log(`${scans.length} scans recalés : ${before} % -> ${after} % de points cohérents`);
 console.log(`Grid map : ${gridClean.width} x ${gridClean.height} cellules de ${gridClean.res} m (${st.free} libres, ${st.occupied} occupées)`);
-console.log(`Carte vectorielle : ${vc.segments.length} segments, ${corners.length} coins, direction des murs ${vc.dominant.toFixed(1)}°`);
+console.log(`Carte vectorielle : ${vc.segments.length} segments dont ${objects.length} d'objets fixes, ${corners.length} coins, direction des murs ${vc.dominant.toFixed(1)}°`);
 console.log(`Emprise : ${(b.maxX - b.minX).toFixed(1)} m x ${(b.maxY - b.minY).toFixed(1)} m`);
 console.log('Écrit : data/reference/carte_reference.json, data/reference/poses_recalees.csv, docs/img/j2_carte_reference.png');

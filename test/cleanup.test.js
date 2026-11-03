@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanGrid, cleanVectorMap, dominantDirection, segmentsNearFloor } from '../src/core/cleanup.js';
-import { GridMap } from '../src/core/gridmap.js';
+import { classifySegments, cleanGrid, cleanMaps, cleanVectorMap, dominantDirection, drawObjects, segmentsNearFloor } from '../src/core/cleanup.js';
+import { GridMap, gridFromScan } from '../src/core/gridmap.js';
+import { VectorMap } from '../src/core/vectormap.js';
+import { rectangle, simulateScan } from '../src/core/sim.js';
 import { orientationDeg } from '../src/core/geometry.js';
 
 const S = (x1, y1, x2, y2) => ({ x1, y1, x2, y2 });
@@ -62,4 +64,57 @@ test('segments hors de la pièce retirés, segment débordant raccourci', () => 
   const kept = segmentsNearFloor([S(0, 2.1, 2, 2.1), S(4, 0, 4, 2), S(1, 2.05, 3.5, 2.05)], g);
   assert.equal(kept.length, 2);
   assert.ok(kept[1].x2 < 2.4, `segment raccourci à ${kept[1].x2}`);
+});
+
+// Pièce propre de 2 m × 2 m (cellules de 10 cm) : sol libre, murs occupés, extérieur inconnu,
+// et une table au milieu dont l'intérieur est inconnu (jamais vu) mais entouré de sol.
+function roomWithTable() {
+  const g = new GridMap({ resolution: 0.1, offI: 0, offJ: 0, width: 30, height: 30 });
+  const set = (i, j, l) => (g.logOdds[g.index(i, j)] = l);
+  for (let j = 5; j < 25; j++) for (let i = 5; i < 25; i++) set(i, j, -4);
+  for (let k = 4; k <= 25; k++) [set(k, 4, 4), set(k, 25, 4), set(4, k, 4), set(25, k, 4)];
+  for (let j = 12; j < 15; j++) for (let i = 12; i < 16; i++) set(i, j, 0);
+  return g;
+}
+
+test('murs et objets fixes : côté de table vu par 2 scans gardé, face accrochée par un coin, fouillis retiré', () => {
+  const g = roomWithTable();
+  const out = classifySegments(
+    [
+      { ...S(0.5, 0.5, 2.5, 0.5), observations: 1 }, // mur du bas, vu une fois : reste un mur
+      { ...S(1.2, 1.2, 1.6, 1.2), observations: 2 }, // côté de la table vu par 2 scans
+      { ...S(1.6, 1.2, 1.6, 1.5), observations: 1 }, // autre côté, vu une fois, relié par le coin
+      { ...S(0.8, 2.0, 1.1, 2.0), observations: 1 }, // chaise vue une fois, isolée
+    ],
+    g,
+  );
+  assert.deepEqual(out.map((s) => s.kind), ['mur', 'objet', 'objet']);
+  const drawn = drawObjects(g, out);
+  const [i, j] = g.worldToCell(1.4, 1.2);
+  assert.equal(drawn.classify(drawn.index(i, j)), 1, 'côté de la table dessiné dans la grid');
+  assert.notEqual(g.classify(g.index(i, j)), 1, 'grid d\'origine inchangée');
+});
+
+test('cartes propres : la table d\'une salle simulée devient un objet fixe, les murs restent des murs', () => {
+  const scene = [...rectangle(0, 0, 6, 4), ...rectangle(2.5, 1.5, 3.5, 2.1)];
+  const poses = [{ x: 1, y: 1, theta: 0 }, { x: 5, y: 3, theta: 90 }, { x: 1, y: 3, theta: -30 }];
+  const scans = poses.map((p, k) => simulateScan(scene, p, { seed: k + 1 }));
+  const grid = gridFromScan(scans[0], poses[0]);
+  scans.slice(1).forEach((s, k) => grid.integrateScan(s, poses[k + 1]));
+  const vm = new VectorMap([], { absence: false });
+  scans.forEach((s, k) => vm.integrateScan(s, poses[k]));
+  const c = cleanMaps(grid, vm.segments, poses);
+  const mid = (s) => ({ x: (s.x1 + s.x2) / 2, y: (s.y1 + s.y2) / 2 });
+  const objects = c.segments.filter((s) => s.kind === 'objet');
+  const walls = c.segments.filter((s) => s.kind === 'mur');
+  assert.equal(objects.length, 4, 'les 4 côtés de la table');
+  for (const s of objects) {
+    const m = mid(s);
+    assert.ok(m.x > 2.4 && m.x < 3.6 && m.y > 1.4 && m.y < 2.2, `objet hors de la table : ${m.x}, ${m.y}`);
+  }
+  assert.equal(walls.length, 4, 'les 4 murs');
+  for (const s of walls) {
+    const m = mid(s);
+    assert.ok(m.x < 0.2 || m.x > 5.8 || m.y < 0.2 || m.y > 3.8, `mur hors du bord : ${m.x}, ${m.y}`);
+  }
 });

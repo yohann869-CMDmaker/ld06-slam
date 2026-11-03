@@ -40,3 +40,10 @@ test('carte de référence : bornes des cellules connues', () => {
   assert.ok(Math.abs(b.minX - 0) < 0.1 && Math.abs(b.maxX - 4) < 0.1);
   assert.ok(Math.abs(b.minY - 0) < 0.1 && Math.abs(b.maxY - 3) < 0.1);
 });
+
+test('carte de référence : les objets fixes gardent leur type', () => {
+  const grid = gridFromScan(simulateScan(rectangle(0, 0, 4, 3), { x: 2, y: 1.5, theta: 0 }, { seed: 1 }));
+  const ref = makeReferenceMap({ grid, segments: [{ x1: 0, y1: 0, x2: 4, y2: 0, kind: 'mur' }, { x1: 1, y1: 1, x2: 2, y2: 1, kind: 'objet' }] });
+  const back = parseReferenceMap(serializeReferenceMap(ref));
+  assert.deepEqual(back.segments, [{ x1: 0, y1: 0, x2: 4, y2: 0 }, { x1: 1, y1: 1, x2: 2, y2: 1, kind: 'objet' }]);
+});

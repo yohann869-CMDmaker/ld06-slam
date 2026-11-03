@@ -20,7 +20,7 @@ scan (angle, distance)  ──► points du robot ──► points du monde ─�
 | Segments | `src/core/segmentation.js` | `clusterize`, `extractSegments`, `fitLine` |
 | Opérations sur segments | `src/core/geometry.js` | `angleBetweenDeg`, `areClose`, `mergeSegments`, `intersect`, `cutSegment` |
 | Carte vectorielle | `src/core/vectormap.js` | `VectorMap.integrateScan` |
-| Cartes propres, coins | `src/core/cleanup.js` | `cleanGrid`, `cleanVectorMap`, `findCorners` |
+| Cartes propres, objets fixes, coins | `src/core/cleanup.js` | `cleanMaps`, `cleanGrid`, `cleanVectorMap`, `classifySegments`, `findCorners` |
 | Recalage des scans | `src/core/matching.js` | `DistanceField`, `matchScan`, `icp`, `autoAlign` |
 | Localisation (jour 2) | `src/core/localization.js` | `localize` et les six méthodes |
 
@@ -114,6 +114,18 @@ Pour chaque scan :
   pondéré par la longueur) ; segments à moins de 7° redressés sur elle ou sa perpendiculaire ;
   fusion ; coins fermés ; segments hors de la pièce retirés ; oubli des segments vus par trop
   peu de scans (option).
+- **Murs et objets fixes** (`classifySegments`, `drawObjects`, chaîne complète `cleanMaps`) :
+  la grid map efface les meubles, car des faisceaux d'autres scans passent dessous ou à côté.
+  Les segments, eux, rassemblent les points de tous les scans qui ont vu le meuble.
+  1. *Extérieur* de la salle : cellules inconnues reliées au bord de la carte (remplissage qui
+     s'arrête sur les murs et le sol). L'intérieur d'une table, entouré de sol, n'en fait pas partie.
+  2. *Mur* : segment dont la moitié au moins est à moins de 25 cm de l'extérieur.
+  3. *Objet fixe* : autre segment vu par au moins 2 scans, ou qui forme un coin avec un segment
+     gardé (face d'un meuble vue une seule fois).
+  4. Le reste (vu par un seul scan, isolé : chaise, sac, personne) est retiré.
+  5. Les objets fixes sont redessinés dans la grid map propre (Bresenham le long du segment).
+  Les cartes propres sont construites **sans découpe par les absences** : la découpe efface les
+  meubles traversés par des faisceaux avant qu'ils aient pu être reconnus.
 - **Coins** : intersection de deux murs presque perpendiculaires dont les extrémités se
   rejoignent, avec la direction de la bissectrice (point d'intérêt orienté du cours).
 

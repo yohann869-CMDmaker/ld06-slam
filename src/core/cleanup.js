@@ -10,8 +10,13 @@
 // On cherche la direction dominante, on redresse les segments proches de ces deux
 // directions, on fusionne les morceaux d'un même mur, on supprime les segments trop courts
 // et on prolonge ou raccourcit les extrémités pour fermer les coins.
+//
+// Objets fixes (table, armoire, tableau) : la grid map propre ne garde que les murs, les
+// meubles y sont effacés par les faisceaux d'autres scans qui passent dessous ou à côté.
+// Les segments, eux, rassemblent les points de tous les scans qui ont vu le meuble : un
+// segment vu par plusieurs scans est un objet fixe, il est gardé et redessiné dans la grid.
 
-import { GridMap } from './gridmap.js';
+import { bresenham, GridMap } from './gridmap.js';
 import { areClose, length, mergeSegments, midpoint, orientationDeg } from './geometry.js';
 import { DEG } from './pose.js';
 
@@ -323,6 +328,9 @@ export function cleanVectorMap(segments, options = {}) {
       for (let b = a + 1; b < segs.length; b++) {
         if (areClose(segs[a], segs[b], close)) {
           const m = snap(mergeSegments(segs[a], segs[b]), dom, o.snapDeg);
+          // observations = scans distincts (deux morceaux vus par le même scan comptent une fois)
+          const scans = [...new Set([...(segs[a].scans ?? []), ...(segs[b].scans ?? [])])];
+          if (scans.length) Object.assign(m, { scans, observations: scans.length });
           segs = segs.filter((_, k) => k !== a && k !== b).concat(m);
           changed = true;
           break outer;
@@ -353,4 +361,109 @@ export function cleanVectorMap(segments, options = {}) {
     }
   }
   return { segments: segs, dominant: dom };
+}
+
+export const DEFAULT_OBJECTS = Object.freeze({
+  minObservations: 2, // objet fixe : vu par au moins 2 scans (vu une seule fois : chaise, sac, personne...)
+  wallDist: 0.25, // m : un segment à moins de 25 cm de l'extérieur de la salle est un mur
+  joinDist: 0.1, // m : un segment qui forme un coin avec un segment gardé fait partie du même meuble
+});
+
+/**
+ * Murs et objets fixes. Chaque segment gardé reçoit kind = 'mur' ou 'objet' :
+ *  - mur : au moins la moitié du segment est à moins de wallDist de l'extérieur de la salle,
+ *    c'est-à-dire des cellules inconnues de la grid map propre reliées au bord de la carte.
+ *    L'intérieur d'une table (inconnu, entouré de sol) ou d'une armoire contre un mur (fermé par
+ *    le mur) n'est pas relié au bord : leurs côtés ne sont pas des murs ;
+ *  - objet fixe : autre segment vu par au moins minObservations scans (côté de la table, armoire,
+ *    tableau), ou qui forme un coin (extrémités à moins de joinDist) avec un segment gardé : face
+ *    d'un meuble vue par un seul scan (face de l'armoire accrochée à sa face avant) ;
+ *  - les autres segments (vus par un seul scan, isolés) sont retirés : mobilier déplacé, personnes.
+ */
+export function classifySegments(segments, cleanedGrid, options = {}) {
+  const o = { ...DEFAULT_OBJECTS, ...options };
+  const g = cleanedGrid;
+  const { width: w, height: h } = g;
+  // extérieur : remplissage depuis les cellules inconnues du bord, à travers les cellules inconnues
+  // (les murs occupés et le sol l'arrêtent)
+  const outside = new Uint8Array(w * h);
+  const stack = [];
+  const push = (i, j) => {
+    if (!g.inside(i, j)) return;
+    const k = g.index(i, j);
+    if (outside[k] || g.classify(k) !== 0) return;
+    outside[k] = 1;
+    stack.push(k);
+  };
+  for (let i = 0; i < w; i++) [push(i, 0), push(i, h - 1)];
+  for (let j = 0; j < h; j++) [push(0, j), push(w - 1, j)];
+  while (stack.length) {
+    const k = stack.pop();
+    const i = k % w;
+    const j = (k - i) / w;
+    push(i + 1, j);
+    push(i - 1, j);
+    push(i, j + 1);
+    push(i, j - 1);
+  }
+  const R = Math.max(1, Math.round(o.wallDist / g.res));
+  const outsideNear = (x, y) => {
+    const [i, j] = g.worldToCell(x, y);
+    for (let dj = -R; dj <= R; dj++) {
+      for (let di = -R; di <= R; di++) if (g.inside(i + di, j + dj) && outside[g.index(i + di, j + dj)]) return true;
+    }
+    return false;
+  };
+  const onWall = (s) => {
+    const steps = Math.max(2, Math.ceil(length(s) / 0.05));
+    let n = 0;
+    for (let k = 0; k <= steps; k++) if (outsideNear(s.x1 + (k / steps) * (s.x2 - s.x1), s.y1 + (k / steps) * (s.y2 - s.y1))) n++;
+    return n >= 0.5 * (steps + 1);
+  };
+  const out = segments.map((s) => {
+    const kind = onWall(s) ? 'mur' : (s.observations ?? 1) >= o.minObservations ? 'objet' : null;
+    return { ...s, kind };
+  });
+  // propagation par les coins : les faces d'un meuble vues par un seul scan le rejoignent
+  const ends = (s) => [[s.x1, s.y1], [s.x2, s.y2]];
+  const touch = (a, b) => ends(a).some(([x, y]) => ends(b).some(([u, v]) => Math.hypot(x - u, y - v) <= o.joinDist));
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (const s of out) {
+      if (!s.kind && out.some((t) => t.kind && touch(s, t))) {
+        s.kind = 'objet';
+        changed = true;
+      }
+    }
+  }
+  return out.filter((s) => s.kind);
+}
+
+/** Grid map propre avec les objets fixes dessinés (cellules occupées le long des segments 'objet'). */
+export function drawObjects(cleanedGrid, segments) {
+  const g = cleanedGrid.clone();
+  for (const s of segments) {
+    if (s.kind !== 'objet') continue;
+    const [i1, j1] = g.worldToCell(s.x1, s.y1);
+    const [i2, j2] = g.worldToCell(s.x2, s.y2);
+    bresenham(i1, j1, i2, j2, (i, j) => {
+      if (g.inside(i, j)) g.logOdds[g.index(i, j)] = g.params.lMax;
+    });
+  }
+  return g;
+}
+
+/**
+ * Chaîne complète des cartes propres (application, carte de référence) :
+ * grid map nettoyée -> carte vectorielle nettoyée -> segments au bord du sol -> murs et objets
+ * fixes -> objets redessinés dans la grid map -> coins.
+ * vectorSegments : segments SANS découpe par les absences (sinon les meubles, traversés par
+ * des faisceaux, sont découpés avant d'avoir pu être reconnus).
+ * Retourne { grid, segments, dominant, corners }.
+ */
+export function cleanMaps(grid, vectorSegments, poses, options = {}) {
+  const walls = cleanGrid(grid, poses, options.grid);
+  const cv = cleanVectorMap(vectorSegments, options.vector);
+  const segments = classifySegments(segmentsNearFloor(cv.segments, walls), walls, options.objects);
+  return { grid: drawObjects(walls, segments), segments, dominant: cv.dominant, corners: findCorners(segments) };
 }

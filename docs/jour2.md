@@ -74,14 +74,23 @@ qu'avec assez de recouvrement entre scans.
 | --- | --- | --- |
 | Points cohérents entre scans | 45 % → 60 % | 75 % → 82 % |
 | Grid map | 279 × 304 cellules de 5 cm | 280 × 304 cellules de 5 cm |
-| Carte vectorielle | 31 segments, 9 coins | 50 segments, 17 coins |
+| Carte vectorielle | 31 segments, 9 coins | 29 segments (13 murs, 16 d'objets fixes), 16 coins |
 | Emprise | 12,6 m × 13,9 m | 12,7 m × 14,1 m |
 
 ![Carte de référence de la salle](img/j2_carte_reference.png)
 
-*Carte à 18 scans. Sol blanc, murs gris (grid map propre), segments noirs, coins orange, poses
-des scans en bleu. Ancienne carte à 7 scans : [j2_carte_reference_7scans.png](img/j2_carte_reference_7scans.png)
-(rectangle central ouvert et décalé).*
+*Carte à 18 scans. Sol blanc, murs gris (grid map propre), murs en noir, objets fixes en violet
+(table du milieu, armoire contre le mur de droite, tableau en diagonale dans le coin en bas à
+gauche, meubles le long du mur du haut), coins orange, poses des scans en bleu. Ancienne carte à
+7 scans : [j2_carte_reference_7scans.png](img/j2_carte_reference_7scans.png) (rectangle central
+ouvert et décalé).*
+
+**Objets fixes.** Les meubles fixés au sol (table, armoire, tableau) sont gardés dans la carte
+propre (méthode : [algorithmes.md](algorithmes.md), § 6). Ils disparaissaient auparavant : dans la
+grid map, les faisceaux d'autres scans passent sous la table et effacent ses cellules (17
+cellules occupées pour 8 m de contour), et la découpe par les absences effaçait leurs segments
+(8,3 m → 0,2 m pour la table). Ils sont maintenant reconnus parce que plusieurs scans les voient
+(2 à 5 scans par côté), alors que le fouillis (chaises, sacs) n'est vu que par un scan.
 
 Dans l'application, section **Carte de référence (jour 2)** :
 
@@ -97,21 +106,23 @@ Vérification sur les 18 scans : chacun est placé à 25 cm, 15 cm et 8° de sa 
 Les scans ont servi à construire la carte : c'est un contrôle de cohérence, pas encore
 l'évaluation sur des scans de test indépendants.
 
-| Référence | Méthode | Réussite (7 scans) | Réussite (18 scans) | Erreur médiane (18 scans) | Temps |
-| --- | --- | --- | --- | --- | --- |
-| Carte vectorielle | Multi-résolution | 13/18 | **17/18** | 1,0 cm / 0,25° | 87 ms |
-| Carte vectorielle | Calcul direct | 13/18 | 10/18 | 1,8 cm / 0,51° | 9 ms |
-| Grid map | Multi-résolution | 13/18 | 13/18 | 3,2 cm / 0,25° | 110 ms |
-| Grid map | Descente de gradient | 11/18 | 13/18 | 3,3 cm / 0,14° | 9 ms |
+| Référence | Méthode | 7 scans | 18 scans, murs + fouillis | 18 scans, murs + objets fixes | Erreur médiane (dernière carte) | Temps |
+| --- | --- | --- | --- | --- | --- | --- |
+| Carte vectorielle | Multi-résolution | 13/18 | 17/18 | **17/18** | 1,0 cm / 0,25° | 95 ms |
+| Carte vectorielle | Calcul direct | 13/18 | 10/18 | **16/18** | 1,3 cm / 0,31° | 7 ms |
+| Grid map | Multi-résolution | 13/18 | 13/18 | **18/18** | 2,2 cm / 0,00° | 98 ms |
+| Grid map | Descente de gradient | 11/18 | 13/18 | **18/18** | 2,2 cm / 0,13° | 5 ms |
 
-- La carte à 18 scans améliore surtout la multi-résolution sur la carte vectorielle : c'est la
-  méthode proposée par défaut avec la carte de référence. Le seul échec (`ls02`) est à 5,1 cm.
-- Le calcul direct est local : au-delà de sa marge de 25 cm il décroche sur les scans qui
-  voient peu de murs (6 à 38 % de leurs points sur la carte). La carte à 50 segments lui
-  propose aussi plus de segments voisins où se tromper.
-- Sur la grid map, l'erreur médiane de 3 cm vient de l'épaisseur des murs (cellules de 5 cm).
+- Les 18 scans améliorent la multi-résolution sur la carte vectorielle (13 → 17), méthode
+  proposée par défaut avec la carte de référence. Le seul échec (`ls02`) est à 5,1 cm.
+- Les **objets fixes** aident toutes les autres méthodes : la table et l'armoire sont de bons
+  repères, et le fouillis vu par un seul scan, qui proposait de faux appariements, est retiré.
+  Sur la grid map, 18/18 réussites ; la descente de gradient le fait en 5 ms.
+- Le calcul direct reste local : au-delà de sa marge de 25 cm il décroche encore sur 2 scans
+  qui voient peu de murs.
+- Sur la grid map, l'erreur médiane de 2 cm vient de l'épaisseur des murs (cellules de 5 cm).
 - Peu de points d'un scan tombent sur la carte (40 à 60 %) même quand la pose est juste : la
-  carte propre ne garde que les murs, sans les pieds de tables et de chaises.
+  carte propre ne garde ni les chaises ni les pieds des tables mobiles.
 
 ## Références
 

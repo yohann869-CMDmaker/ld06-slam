@@ -3,7 +3,7 @@
 //
 // Elle réunit dans un seul fichier JSON :
 //   - la grid map (valeurs 0..255 par cellule, compressées par plages de valeurs identiques) ;
-//   - la carte vectorielle (segments) et ses coins ;
+//   - la carte vectorielle (segments de murs et d'objets fixes) et ses coins ;
 //   - les scans qui ont servi à la construire et leurs poses (traçabilité).
 // La carte ne change plus ensuite : localiser un scan ne la modifie pas.
 
@@ -46,7 +46,7 @@ export function makeReferenceMap(o) {
     date: o.date ?? new Date().toISOString(),
     clean: Boolean(o.clean),
     grid: o.grid,
-    segments: (o.segments ?? []).map(({ x1, y1, x2, y2 }) => ({ x1, y1, x2, y2 })),
+    segments: (o.segments ?? []).map(({ x1, y1, x2, y2, kind }) => (kind === 'objet' ? { x1, y1, x2, y2, kind } : { x1, y1, x2, y2 })),
     corners: (o.corners ?? []).map(({ x, y, theta }) => ({ x, y, theta })),
     scans: (o.scans ?? []).map((s) => ({ name: s.name, pose: { ...s.pose } })),
   };
@@ -73,7 +73,8 @@ export function serializeReferenceMap(ref) {
       encoding: 'valeurs 0..255 (0 libre, 128 inconnu, 255 occupé), lignes de bas en haut, plages [valeur, nombre]',
       runs: runLength(values),
     },
-    segments: ref.segments.map((s) => [s.x1, s.y1, s.x2, s.y2].map(round)),
+    // murs : [x1, y1, x2, y2] ; objets fixes (meubles) : [x1, y1, x2, y2, "objet"]
+    segments: ref.segments.map((s) => [s.x1, s.y1, s.x2, s.y2].map(round).concat(s.kind === 'objet' ? ['objet'] : [])),
     corners: ref.corners.map((c) => [round(c.x), round(c.y), Math.round(c.theta * 10) / 10]),
     scans: ref.scans.map((s) => ({ name: s.name, pose: [round(s.pose.x), round(s.pose.y), Math.round(s.pose.theta * 100) / 100] })),
   });
@@ -98,7 +99,7 @@ export function parseReferenceMap(text) {
     date: d.date,
     clean: d.clean,
     grid,
-    segments: d.segments.map(([x1, y1, x2, y2]) => ({ x1, y1, x2, y2 })),
+    segments: d.segments.map(([x1, y1, x2, y2, kind]) => ({ x1, y1, x2, y2, kind })),
     corners: (d.corners ?? []).map(([x, y, theta]) => ({ x, y, theta })),
     scans: (d.scans ?? []).map((s) => ({ name: s.name, pose: { x: s.pose[0], y: s.pose[1], theta: s.pose[2] } })),
   });

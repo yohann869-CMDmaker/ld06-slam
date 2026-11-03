@@ -6,7 +6,9 @@
 //      chaque cellule atteignable et chemin le plus court ;
 //   3. cellules frontières : libres, atteignables, avec une voisine inconnue (bord de ce qu'on a
 //      vu) ; regroupées en zones, les petites zones (bruit) sont ignorées ;
-//   4. but : la cellule la plus proche de la zone frontière la plus proche ;
+//   4. but : la zone frontière la plus proche (Yamauchi) ou, en option, la plus utile,
+//      longueur / (distance + 1 m) (Holz et al., 2010), et sa cellule la plus proche du robot ;
+//      sur nos scènes, l'utilité n'a pas raccourci le trajet (docs/jour3_explore.md) ;
 //   5. commande : le point le plus loin du chemin encore en vue directe (au plus `maxStep`) ;
 //      tourner vers lui si l'écart dépasse `turnTol`, sinon avancer, sans s'approcher de l'obstacle
 //      le plus proche droit devant dans le dernier scan (sécurité si la carte est en retard).
@@ -31,6 +33,7 @@ export const DEFAULT_EXPLORE = Object.freeze({
   maxRange: 12, // m : frontières plus loin du départ ignorées (faisceaux sortis par les vitres)
   startFree: 0.3, // m : autour du robot, on peut passer même si la carte n'est pas sûre (dégagement)
   maxTries: 12, // commandes vers un même but sans l'atteindre : but abandonné
+  selection: 'nearest', // 'nearest' : la plus proche ; 'utility' : longueur / (distance + 1 m)
 });
 
 const N4 = [
@@ -140,8 +143,9 @@ export function planExploration(grid, pose, points = [], home = pose, options = 
   const frontiers = zones.map((z) => ({ ...z.center, size: z.size }));
   if (!zones.length) return { done: true, reason: 'plus de frontière atteignable : carte terminée', path: [], frontiers };
 
-  // 4. zone la plus proche ; chemin du robot au but
-  const zone = zones.reduce((a, b) => (b.cost < a.cost ? b : a));
+  // 4. zone choisie ; chemin du robot au but
+  const utility = (z) => (o.selection === 'nearest' ? -z.cost : (z.size * res) / (z.cost * res + 1));
+  const zone = zones.reduce((a, b) => (utility(b) > utility(a) ? b : a));
   const cellsPath = [];
   for (let k = zone.goal; k >= 0; k = parent[k]) cellsPath.push(k);
   cellsPath.reverse();

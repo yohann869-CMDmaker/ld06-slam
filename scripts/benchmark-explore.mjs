@@ -81,15 +81,18 @@ const md = [
   'la distance et l\'angle, 5 cm de glissement latéral et 1,5° de dérive de cap par mètre ; le SLAM',
   'ne reçoit que la commande. **Couverture** : part du sol libre de la scène (grille de 10 cm, hors',
   'meubles et murs) que la carte a vue libre. **Réussite** : couverture ≥ 95 % sans collision.',
+  '**Choix de la frontière** : la plus proche (Yamauchi 1997) ou la plus utile, longueur / (distance + 1 m)',
+  '(Holz et al. 2010).',
   '',
 ];
 for (const sc of SCENES) {
-  md.push(`## ${sc.title}`, '', '| Départ | Pas | Distance | Couverture | Collisions | ATE | Erreur finale | Boucles | Temps / pas | Réussite |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
-  for (const [n, start] of sc.starts.entries()) {
+  md.push(`## ${sc.title}`, '', '| Choix de la frontière | Départ | Pas | Distance | Couverture | Collisions | ATE | Erreur finale | Boucles | Temps / pas | Réussite |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+  for (const selection of ['nearest', 'utility']) for (const [n, start] of sc.starts.entries()) {
     const t0 = performance.now();
     let last = null;
-    for (const s of simulateExploration(sc.scene, start, { seed: 3 + n, ...sc.options })) {
-      if (n === 0 && s.step === sc.snapshot) await figure(sc.scene, s, `j3_explo_${sc.id}_en_cours.png`, s.plan);
+    const options = { seed: 3 + n, ...sc.options, explore: { ...sc.options.explore, selection } };
+    for (const s of simulateExploration(sc.scene, start, options)) {
+      if (n === 0 && selection === 'nearest' && s.step === sc.snapshot) await figure(sc.scene, s, `j3_explo_${sc.id}_en_cours.png`, s.plan);
       last = s;
     }
     const time = (performance.now() - t0) / (last.step + 1);
@@ -98,9 +101,9 @@ for (const sc of SCENES) {
     const ate = Math.sqrt(err.reduce((a, e) => a + e * e, 0) / err.length);
     const cov = freeCoverage(last.slam.grid, sc.floor);
     const ok = cov >= 0.95 && last.collisions === 0 && last.plan.done;
-    md.push(`| (${start.x} ; ${start.y} ; ${start.theta}°) | ${last.step} | ${last.distance.toFixed(1)} m | **${(100 * cov).toFixed(1)} %** | ${last.collisions} | ${(100 * ate).toFixed(1)} cm | ${(100 * err.at(-1)).toFixed(1)} cm | ${last.slam.loops.length} | ${time.toFixed(0)} ms | ${ok ? 'oui' : 'non'} |`);
-    process.stdout.write(`${sc.id} départ ${n + 1} : ${last.step} pas, couverture ${(100 * cov).toFixed(1)} %\n`);
-    if (n === 0) await figure(sc.scene, last, `j3_explo_${sc.id}.png`);
+    md.push(`| ${selection === 'utility' ? 'utilité' : 'la plus proche'} | (${start.x} ; ${start.y} ; ${start.theta}°) | ${last.step} | ${last.distance.toFixed(1)} m | **${(100 * cov).toFixed(1)} %** | ${last.collisions} | ${(100 * ate).toFixed(1)} cm | ${(100 * err.at(-1)).toFixed(1)} cm | ${last.slam.loops.length} | ${time.toFixed(0)} ms | ${ok ? 'oui' : 'non'} |`);
+    process.stdout.write(`${sc.id} ${selection} départ ${n + 1} : ${last.step} pas, couverture ${(100 * cov).toFixed(1)} %\n`);
+    if (n === 0 && selection === 'nearest') await figure(sc.scene, last, `j3_explo_${sc.id}.png`);
   }
   md.push('');
 }

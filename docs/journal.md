@@ -168,6 +168,15 @@ direct 10/18 → 16/18.
 | Scans clés de l'exploration avec le robot absents de la liste | La liste n'était pas redessinée | Sélection du nouveau scan (comme le SLAM en direct) |
 | Test « le but est la porte » en échec | La frontière la plus proche était un petit trou de la carte dans un coin de la première pièce : comportement normal | Test reformulé : la seconde pièce est vue comme frontière, le but est la zone la plus proche, le chemin ne traverse pas de mur |
 
+## Mercredi 4 novembre (soir) — méthodes de l'état de l'art
+
+| Problème | Cause | Correction |
+| --- | --- | --- |
+| NDT bloqué près de la pose de départ (erreurs de 5 à 28 cm, angle inchangé) | Loin du minimum, la hessienne du score NDT n'est pas définie positive : le pas de Newton remonte, la recherche linéaire échoue | Levenberg-Marquardt : (H + λ·diag) d = −g, λ augmenté tant que le score ne baisse pas : 1 à 17 mm |
+| PL-ICP faible sur la grid map (74 %) | Normales estimées sur des centres de cellules alignés tous les 5 cm : bruitées | Gardé tel quel, documenté : sur une grid map, préférer le Gauss-Newton |
+| Choix des frontières par utilité sans gain | Une grande frontière lointaine attire le robot avant qu'il ait fini sa pièce | Gardé en option, « la plus proche » reste le défaut |
+| SLAM lent (250 ms par scan) | Recherche multi-résolution à chaque scan | Suivi par Gauss-Newton d'abord (1-2 ms), multi-résolution en secours : 33 à 68 ms |
+
 Ajouts après lecture des documents du cours : localisation sur trois références et six
 méthodes (dont le calcul direct inspiré de l'article « Mars Attacks! »), coins, oubli des
 segments rarement vus, banc d'essai chiffré du jour 2.

@@ -29,6 +29,8 @@ import { optimizePoseGraph } from './posegraph.js';
 export const DEFAULT_SLAM = Object.freeze({
   window: { xyRange: 0.5, thRange: 20 }, // recherche locale autour de la prédiction
   minInliers: 0.5, // part des points du scan sur la carte pour accepter le suivi
+  fastTracking: true, // suivi par Gauss-Newton d'abord, multi-résolution en secours
+  fastInliers: 0.7, // part des points sur la carte pour se contenter du suivi rapide
   relocalize: true, // relocalisation globale si le suivi échoue
   keyDist: 0.2, // m : nouveau scan clé après ce déplacement
   keyAngle: 10, // degrés : ou cette rotation
@@ -164,7 +166,13 @@ export class Slam {
     // 1. prédiction ; 2. suivi sur la carte locale
     const predicted = odom ? composePoses(this.last, odom) : { ...this.last };
     const ref = this.localReference();
-    const m = localize(ref, points, predicted, 'multires', this.o.window);
+    // suivi rapide d'abord (Gauss-Newton sur la carte locale, ~1 ms, à la manière de Hector SLAM) ;
+    // la recherche multi-résolution (~100 ms) seulement s'il ne colle pas assez
+    let m = this.o.fastTracking ? localize(ref, points, predicted, 'gaussnewton') : null;
+    if (!m || m.inliers < this.o.fastInliers) {
+      const mr = localize(ref, points, predicted, 'multires', this.o.window);
+      if (!m || mr.inliers >= m.inliers) m = mr;
+    }
     const i = localize(ref, points, m.pose, 'icp');
     let best = i.inliers >= m.inliers ? i : m;
     let mode = 'suivi';

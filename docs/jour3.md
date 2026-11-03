@@ -123,16 +123,22 @@ dérive de cap par mètre), le SLAM ne reçoit que la commande.
 
 | Scène | Départs réussis | Couverture | Collisions | Erreur de pose (ATE) | Pas / distance |
 | --- | --- | --- | --- | --- | --- |
-| Salle de classe 10 m × 8 m | 3 / 3 | 100 % | 0 | 0,7 à 1,2 cm | 30 à 38 pas, 7 à 9 m |
-| Trois pièces reliées par des portes de 1 m | 3 / 3 | 98,3 à 100 % | 0 | 1,5 à 1,9 cm | 102 à 134 pas, 27 à 33 m |
+| Salle de classe 10 m × 8 m | 3 / 3 | 100 % | 0 | 0,7 à 1,9 cm | 33 à 39 pas, 8 à 10 m |
+| Trois pièces reliées par des portes de 1 m | 3 / 3 | 99,6 à 100 % | 0 | 1,0 à 1,1 cm | 104 à 149 pas, 27 à 34 m |
+
+(Chiffres avec le suivi rapide du SLAM, voir plus bas ; 55 à 150 ms par pas, SLAM compris.)
 
 | Trois pièces : exploration en cours (frontières en vert, chemin prévu en orange) | Carte finale |
 | --- | --- |
 | ![en cours](img/j3_explo_pieces_en_cours.png) | ![finale](img/j3_explo_pieces.png) |
 
 - La frontière la plus proche n'est pas toujours la plus utile : le robot fait parfois des
-  allers-retours entre deux pièces (trajet de 27 à 33 m pour une surface de 112 m²). Choisir la
-  zone selon sa taille et sa distance réduirait le trajet.
+  allers-retours entre deux pièces (trajet de 27 à 34 m pour une surface de 112 m²). Choisir la
+  zone selon son utilité, longueur / (distance + 1 m) (Holz et al., 2010), **ne raccourcit pas**
+  le trajet en moyenne (94 m au total sur les trois départs, contre 94 m) : il gagne sur certains
+  départs, perd sur d'autres ; une grande frontière lointaine attire le robot avant qu'il ait fini
+  la pièce où il est, et il doit y revenir. Gardé en option ; un vrai gain demanderait de tenir
+  compte de la pièce en cours ou de planifier l'ordre de visite.
 - Le robot passe par les portes de 1 m sans les toucher : 1 m − 2 × 25 cm laisse un couloir de
   50 cm au centre du robot.
 
@@ -155,3 +161,23 @@ parties de 0,25 m/s et 90 °/s, convergent vers 0,31 m/s et 72 °/s pour des vit
 Limites attendues : les vitres (faisceaux qui sortent de la salle : frontières ignorées au-delà de
 12 m du départ), les pieds de chaises et de tables fins, vus par peu de points, et la durée des
 commandes, très approximative au début.
+
+## Amélioration du SLAM : suivi rapide (4 novembre)
+
+D'après le banc d'essai du jour 2, le Gauss-Newton sur la carte (à la manière de Hector SLAM) se
+recale en 1 à 2 ms. Le suivi du SLAM l'essaie d'abord, depuis la prédiction ; la recherche
+multi-résolution (~100 ms) ne sert plus que si moins de 70 % des points collent à la carte locale
+(`fastTracking`, `fastInliers` dans `slam.js`).
+
+| Scène | Avant : ATE / temps par scan | Après : ATE / temps par scan |
+| --- | --- | --- |
+| Salle, avec odométrie | 0,7 cm / 253 ms | 0,6 cm / **38 ms** |
+| Salle, sans odométrie | 0,6 cm / 263 ms | 0,6 cm / **68 ms** |
+| Couloir 54 m, boucle et précision par direction | 27,1 cm / 116 ms | 30,1 cm / **33 ms** |
+
+Le SLAM est **4 à 7 fois plus rapide** pour la même précision dans la salle ; dans le long couloir,
+l'erreur moyenne augmente un peu (27 → 30 cm, arrivée toujours à 2 cm) : le Gauss-Newton accepte
+des recalages un peu moins justes que la multi-résolution suivie de l'ICP. Pour le robot réel, la
+vitesse compte : un scan traité en 40 ms laisse le temps de suivre le lidar à 10 tours par seconde.
+Le tableau « Résultats sur trajets simulés » plus haut est celui d'avant ce changement ;
+[jour3_slam.md](jour3_slam.md) donne les chiffres actuels.

@@ -163,3 +163,22 @@ test('grid map propre : meuble surélevé occupé en partie, meuble posé au sol
   assert.equal(isPartlyOccupied(drawn, drawn.index(i1, j1)), true);
   assert.equal(isPartlyOccupied(drawn, drawn.index(i2, j2)), false);
 });
+
+test('murs vus d\'en haut : ils ferment la salle derrière une armoire, qui reste un objet', () => {
+  // pièce de 2 m : le mur de droite (i = 25) n'est pas vu du sol derrière l'armoire (j 12..16)
+  const g = new GridMap({ resolution: 0.1, offI: 0, offJ: 0, width: 30, height: 30 });
+  const set = (i, j, l) => (g.logOdds[g.index(i, j)] = l);
+  for (let j = 5; j < 25; j++) for (let i = 5; i < 21; i++) set(i, j, -4);
+  for (let j = 5; j < 25; j++) for (let i = 21; i < 25; i++) if (j < 12 || j > 16) set(i, j, -4);
+  for (let k = 4; k <= 25; k++) [set(k, 4, 4), set(k, 25, 4), set(4, k, 4)];
+  for (let j = 4; j <= 25; j++) if (j < 12 || j > 16) set(25, j, 4);
+  const armoire = [
+    { ...S(2.1, 1.2, 2.1, 1.7), observations: 2 },
+    { ...S(2.1, 1.7, 2.5, 1.7), observations: 2 },
+    { ...S(2.1, 1.2, 2.5, 1.2), observations: 2 },
+  ];
+  assert.deepEqual(classifySegments(armoire, g).map((s) => s.kind), ['mur', 'mur', 'mur'], 'sans le mur caché : frontière');
+  const out = classifySegments(armoire, g, { barriers: [S(2.55, 0.45, 2.55, 2.55)] });
+  assert.deepEqual(out.map((s) => s.kind), ['objet', 'objet', 'objet', 'mur']);
+  assert.equal(out[3].seenFromAbove, true);
+});

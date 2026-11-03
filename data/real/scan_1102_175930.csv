@@ -1,4 +1,5 @@
 # Robot position: x=-2.6600m, y=1.0808m, theta=5.50deg
+# pris en hauteur : sur la table du milieu, sur 3 boîtes (deuxième scan, indiqué par Yohan)
 # LD06 scan n=454 speed=3602deg/s crc_errors=33
 # end
 angle_deg,distance_m,intensity

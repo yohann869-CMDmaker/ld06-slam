@@ -134,6 +134,13 @@ Pour chaque scan :
   ignorés. Au-delà de 15 % de faisceaux passés dessous, le meuble est **surélevé** : pointillés
   sur le plan (convention des plans d'architecte), cellules « occupées en partie » (p = 0,75,
   gris) dans la grid map ; posé au sol : trait plein, cellules occupées (noir).
+- **Scans pris en hauteur** (`looksElevated`, ligne `# pris en hauteur : ...` dans le fichier) :
+  robot posé sur un meuble, le lidar passe au-dessus des meubles. Indice : aucun obstacle à
+  moins de 1 m et portée médiane d'au moins 4 m (au sol, les pieds de chaises et de tables sont
+  toujours proches). Ces scans servent au recalage et à la **frontière de la salle** : les grands
+  murs (≥ 2 m) qu'ils voient par-dessus les meubles ferment l'extérieur et remplacent les morceaux
+  du même mur vus du sol (`barriers`). Grid map, carte vectorielle et meubles sont faits avec les
+  scans au sol (`cleanMaps`).
 - **Coins** : intersection de deux murs presque perpendiculaires dont les extrémités se
   rejoignent, avec la direction de la bissectrice (point d'intérêt orienté du cours).
 

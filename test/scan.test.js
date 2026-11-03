@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseScanCSV, parseTeleplot, scanToLocalXY, scanToWorldXY, serializeScanCSV, singleTour, validPoints } from '../src/core/scan.js';
+import { looksElevated, parseScanCSV, parseTeleplot, scanToLocalXY, scanToWorldXY, serializeScanCSV, setElevated, singleTour, validPoints } from '../src/core/scan.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);
 
@@ -187,4 +187,22 @@ test('un seul tour : le tour le plus complet est choisi quand des trames manquen
   const t = singleTour(s);
   assert.equal(t.points.length, 300);
   assert.ok(t.points[0] !== s.points[0]);
+});
+
+test('scan pris en hauteur : marqué dans le fichier, relu, démarqué', () => {
+  const s = parseScanCSV('# Robot position: x=1.0000m, y=0.0000m, theta=0.00deg\n# pris en hauteur : sur l\'armoire\nangle_deg,distance_m,intensity\n0.000,2.0000,200\n', 'h.csv');
+  assert.equal(s.elevated, true);
+  const back = parseScanCSV(serializeScanCSV(s), 'h.csv');
+  assert.equal(back.elevated, true);
+  const floor = setElevated(back, false);
+  assert.equal(floor.elevated, false);
+  assert.equal(parseScanCSV(serializeScanCSV(floor), 'h.csv').elevated, false);
+  assert.equal(parseScanCSV(serializeScanCSV(setElevated(floor, true, 'sur la table')), 'h.csv').comments.includes('pris en hauteur : sur la table'), true);
+});
+
+test('scan pris en hauteur : indice d\'après les mesures', () => {
+  const at = (r) => Array.from({ length: 300 }, (_, k) => ({ angle: k * 1.2, r: typeof r === 'function' ? r(k) : r, intensity: 200 }));
+  assert.equal(looksElevated({ points: at(5) }), true, 'que des murs lointains');
+  assert.equal(looksElevated({ points: at((k) => (k % 20 === 0 ? 0.5 : 5)) }), false, 'des pieds de chaises à 50 cm');
+  assert.equal(looksElevated({ points: at(2) }), false, 'salle vue de près');
 });

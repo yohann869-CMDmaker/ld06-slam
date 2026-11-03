@@ -367,6 +367,8 @@ export const DEFAULT_OBJECTS = Object.freeze({
   minObservations: 2, // objet fixe : vu par au moins 2 scans (vu une seule fois : chaise, sac, personne...)
   wallDist: 0.25, // m : un segment à moins de 25 cm de l'extérieur de la salle est un mur
   joinDist: 0.1, // m : un segment qui forme un coin avec un segment gardé fait partie du même meuble
+  barrierLength: 2, // m : un segment au moins aussi long est un mur qui ferme l'extérieur, même caché
+  barriers: [], // segments supplémentaires qui ferment l'extérieur (murs vus par les scans pris en hauteur)
 });
 
 /**
@@ -374,7 +376,10 @@ export const DEFAULT_OBJECTS = Object.freeze({
  *  - mur : au moins la moitié du segment est à moins de wallDist de l'extérieur de la salle,
  *    c'est-à-dire des cellules inconnues de la grid map propre reliées au bord de la carte.
  *    L'intérieur d'une table (inconnu, entouré de sol) ou d'une armoire contre un mur (fermé par
- *    le mur) n'est pas relié au bord : leurs côtés ne sont pas des murs ;
+ *    le mur) n'est pas relié au bord : leurs côtés ne sont pas des murs. Depuis le sol, le mur
+ *    derrière l'armoire n'est pas vu : les segments d'au moins barrierLength (les grands murs,
+ *    prolongés par la fusion au-delà de ce qu'ils cachent) ferment aussi l'extérieur, de même que
+ *    les grands murs de `barriers` (vus d'en haut, par-dessus les meubles, non dessinés) ;
  *  - objet fixe : autre segment vu par au moins minObservations scans (côté de la table, armoire,
  *    tableau), ou qui forme un coin (extrémités à moins de joinDist) avec un segment gardé : face
  *    d'un meuble vue par un seul scan (face de l'armoire accrochée à sa face avant) ;
@@ -385,13 +390,23 @@ export function classifySegments(segments, cleanedGrid, options = {}) {
   const g = cleanedGrid;
   const { width: w, height: h } = g;
   // extérieur : remplissage depuis les cellules inconnues du bord, à travers les cellules inconnues
-  // (les murs occupés et le sol l'arrêtent)
+  // (les murs occupés, le sol et les grands murs de la carte vectorielle l'arrêtent)
+  const barrier = new Uint8Array(w * h);
+  for (const s of [...segments, ...o.barriers]) {
+    if (length(s) < o.barrierLength) continue;
+    const [i1, j1] = g.worldToCell(s.x1, s.y1);
+    const [i2, j2] = g.worldToCell(s.x2, s.y2);
+    bresenham(i1, j1, i2, j2, (i, j) => {
+      // trait épais d'une cellule de chaque côté : un remplissage en 4 voisins ne le traverse pas
+      for (const [di, dj] of [[0, 0], [1, 0], [0, 1]]) if (g.inside(i + di, j + dj)) barrier[g.index(i + di, j + dj)] = 1;
+    });
+  }
   const outside = new Uint8Array(w * h);
   const stack = [];
   const push = (i, j) => {
     if (!g.inside(i, j)) return;
     const k = g.index(i, j);
-    if (outside[k] || g.classify(k) !== 0) return;
+    if (outside[k] || barrier[k] || g.classify(k) !== 0) return;
     outside[k] = 1;
     stack.push(k);
   };
@@ -436,7 +451,18 @@ export function classifySegments(segments, cleanedGrid, options = {}) {
       }
     }
   }
-  return out.filter((s) => s.kind);
+  // murs vus d'en haut (barriers, scans pris en hauteur) : ils complètent la frontière de la salle
+  // là où les meubles la cachent au sol, et remplacent les morceaux du même mur vus du sol. On ne
+  // garde que ceux qui bordent l'extérieur et qui ne doublent pas un meuble (dessus d'un bureau).
+  const close = { maxAngleDeg: DEFAULT_VECTOR_CLEAN.mergeAngle, maxDistance: DEFAULT_VECTOR_CLEAN.mergeDistance, maxGap: DEFAULT_VECTOR_CLEAN.mergeGap };
+  let kept = out.filter((s) => s.kind);
+  for (const b of o.barriers) {
+    if (length(b) < o.barrierLength || !onWall(b)) continue;
+    if (kept.some((s) => s.kind === 'objet' && areClose(s, b, close))) continue;
+    kept = kept.filter((s) => !(s.kind === 'mur' && areClose(s, b, close)));
+    kept.push({ ...b, kind: 'mur', seenFromAbove: true });
+  }
+  return kept;
 }
 
 /**
@@ -451,14 +477,14 @@ export function drawObjects(cleanedGrid, segments) {
   const g = cleanedGrid.clone();
   const raised = Math.log(RAISED_P / (1 - RAISED_P));
   for (const s of segments) {
-    if (s.kind !== 'objet') continue;
+    if (s.kind !== 'objet' && !s.seenFromAbove) continue; // objets fixes, et murs cachés au sol par les meubles
     const [i1, j1] = g.worldToCell(s.x1, s.y1);
     const [i2, j2] = g.worldToCell(s.x2, s.y2);
     bresenham(i1, j1, i2, j2, (i, j) => {
       if (!g.inside(i, j)) return;
       const k = g.index(i, j);
       // une cellule déjà mur (posé au sol) le reste
-      g.logOdds[k] = s.raised ? Math.max(g.logOdds[k], raised) : g.params.lMax;
+      g.logOdds[k] = s.kind === 'objet' && s.raised ? Math.max(g.logOdds[k], raised) : g.params.lMax;
     });
   }
   return g;
@@ -473,12 +499,15 @@ export const isPartlyOccupied = (grid, k) => grid.classify(k) === 1 && grid.prob
  * fixes -> objets redessinés dans la grid map -> coins.
  * vectorSegments : segments SANS découpe par les absences (sinon les meubles, traversés par
  * des faisceaux, sont découpés avant d'avoir pu être reconnus).
+ * options.views : [{ pose, points }] des scans au sol, pour reconnaître les meubles surélevés ;
+ * options.barriers : murs vus par tous les scans, y compris pris en hauteur (frontière de la salle).
  * Retourne { grid, segments, dominant, corners }.
  */
 export function cleanMaps(grid, vectorSegments, poses, options = {}) {
   const walls = cleanGrid(grid, poses, options.grid);
   const cv = cleanVectorMap(vectorSegments, options.vector);
-  let segments = classifySegments(segmentsNearFloor(cv.segments, walls), walls, options.objects);
+  const objects = { ...options.objects, barriers: options.barriers ?? [] };
+  let segments = classifySegments(segmentsNearFloor(cv.segments, walls), walls, objects);
   if (options.views) segments = markRaised(segments, options.views, options.raised);
   return { grid: drawObjects(walls, segments), segments, dominant: cv.dominant, corners: findCorners(segments) };
 }
@@ -513,7 +542,8 @@ export const DEFAULT_RAISED = Object.freeze({
   minCrossAngle: 20, // degrés : faisceau trop rasant ignoré (sensible aux erreurs de pose)
   endMargin: 0.05, // m : faisceau qui passe à moins de 5 cm d'une extrémité ignoré (à côté du meuble)
   // meuble surélevé si au moins 15 % des faisceaux qui l'atteignent passent dessous. Mesuré sur la
-  // salle : meubles posés au sol 6 % (erreurs de pose), table sur roulettes 23 %, tableau 58 %
+  // salle avec les scans au sol : armoire 1 %, table 4 % (l'espace sous la table est plus bas que
+  // le lidar), autres meubles posés au sol 2 à 7 %, tableau sur deux pieds 61 %
   minRatio: 0.15,
 });
 

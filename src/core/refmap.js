@@ -37,7 +37,8 @@ function unRunLength(runs, size) {
 
 /**
  * Crée une carte de référence.
- * o = { name, grid, segments, corners, scans: [{ name, pose }], clean (version propre ou brute) }
+ * o = { name, grid, segments, corners, scans: [{ name, pose, elevated }], clean (version propre ou brute) }
+ * elevated : scan pris en hauteur (robot posé sur un meuble), utilisé pour le recalage seulement.
  */
 export function makeReferenceMap(o) {
   return {
@@ -50,7 +51,7 @@ export function makeReferenceMap(o) {
       kind === 'objet' ? { x1, y1, x2, y2, kind, raised: Boolean(raised) } : { x1, y1, x2, y2 },
     ),
     corners: (o.corners ?? []).map(({ x, y, theta }) => ({ x, y, theta })),
-    scans: (o.scans ?? []).map((s) => ({ name: s.name, pose: { ...s.pose } })),
+    scans: (o.scans ?? []).map((s) => ({ name: s.name, pose: { ...s.pose }, ...(s.elevated ? { elevated: true } : {}) })),
   };
 }
 
@@ -80,7 +81,11 @@ export function serializeReferenceMap(ref) {
       [s.x1, s.y1, s.x2, s.y2].map(round).concat(s.kind === 'objet' ? [s.raised ? 'objet surélevé' : 'objet'] : []),
     ),
     corners: ref.corners.map((c) => [round(c.x), round(c.y), Math.round(c.theta * 10) / 10]),
-    scans: ref.scans.map((s) => ({ name: s.name, pose: [round(s.pose.x), round(s.pose.y), Math.round(s.pose.theta * 100) / 100] })),
+    scans: ref.scans.map((s) => ({
+      name: s.name,
+      pose: [round(s.pose.x), round(s.pose.y), Math.round(s.pose.theta * 100) / 100],
+      ...(s.elevated ? { en_hauteur: true } : {}),
+    })),
   });
 }
 
@@ -112,7 +117,7 @@ export function parseReferenceMap(text) {
       raised: kind === 'objet surélevé',
     })),
     corners: (d.corners ?? []).map(([x, y, theta]) => ({ x, y, theta })),
-    scans: (d.scans ?? []).map((s) => ({ name: s.name, pose: { x: s.pose[0], y: s.pose[1], theta: s.pose[2] } })),
+    scans: (d.scans ?? []).map((s) => ({ name: s.name, pose: { x: s.pose[0], y: s.pose[1], theta: s.pose[2] }, elevated: s.en_hauteur })),
   });
 }
 

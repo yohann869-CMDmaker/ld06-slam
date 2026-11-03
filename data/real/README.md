@@ -17,6 +17,13 @@ Trois façons d'acquérir les scans (détails dans le README principal) :
 Après avoir ajouté des scans : `node scripts/build-reference.mjs` recale l'ensemble et
 régénère la carte de référence (`data/reference/`).
 
+**Scans pris en hauteur** (robot posé sur un meuble) : ajouter la ligne
+`# pris en hauteur : sur l'armoire` (par exemple) sous la pose, ou cocher « Scan pris en hauteur »
+dans l'application. Ils servent au recalage et aux murs, pas aux cartes. Marqués ici :
+`scan_1102_175527` (sur l'armoire), `scan_1102_175930` (sur la table, sur 3 boîtes), et, d'après
+leurs mesures, `scan_1103_ls09` (sur l'armoire), `scan_1103_ls08` (sur la table) et
+`scan_1103_ls12` (support à confirmer).
+
 Format des fichiers (identique à l'export RobotControl) :
 
 ```

@@ -59,3 +59,10 @@ test('carte de référence : les objets fixes gardent leur type, posés au sol o
     { x1: 1, y1: 2, x2: 2, y2: 2, kind: 'objet', raised: true },
   ]);
 });
+
+test('carte de référence : les scans pris en hauteur restent marqués', () => {
+  const grid = gridFromScan(simulateScan(rectangle(0, 0, 4, 3), { x: 2, y: 1.5, theta: 0 }, { seed: 1 }));
+  const ref = makeReferenceMap({ grid, scans: [{ name: 'a.csv', pose: { x: 0, y: 0, theta: 0 }, elevated: true }, { name: 'b.csv', pose: { x: 1, y: 0, theta: 0 } }] });
+  const back = parseReferenceMap(serializeReferenceMap(ref));
+  assert.deepEqual(back.scans.map((s) => Boolean(s.elevated)), [true, false]);
+});

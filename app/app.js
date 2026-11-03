@@ -1,11 +1,11 @@
 // Application web : affichage de plusieurs scans, poses modifiables,
 // construction et mise à jour d'une grid map et d'une carte vectorielle.
 import { DEG, normalizeAngleDeg, poseError, transformPoints } from '../src/core/pose.js';
-import { parseScanCSV, scanToLocalXY, serializeScanCSV, validPoints } from '../src/core/scan.js';
+import { looksElevated, parseScanCSV, scanToLocalXY, serializeScanCSV, setElevated, validPoints } from '../src/core/scan.js';
 import { GridMap, gridFromScan, occupancyRGB, UNKNOWN_RGB } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { autoAlign, consistency, matchScan } from '../src/core/matching.js';
-import { cleanMaps, isPartlyOccupied } from '../src/core/cleanup.js';
+import { cleanMaps, cleanVectorMap, isPartlyOccupied } from '../src/core/cleanup.js';
 import { gridReference, localize, METHODS, METHODS_BY_REFERENCE, scanReference, vectorReference } from '../src/core/localization.js';
 import { dayOneExports, MAPTOOL, maptoolColor } from './figures.js';
 import { makeReferenceMap, parseReferenceMap, referenceBounds, serializeReferenceMap } from '../src/core/refmap.js';
@@ -68,6 +68,7 @@ function addScan(scan) {
     visible: true,
     flip: false,
     cache: null,
+    looksHigh: looksElevated(scan), // indice : rien à moins de 1 m, portée médiane ≥ 4 m
   };
   state.scans.push(entry);
   return entry;
@@ -124,7 +125,8 @@ function renderScanList() {
     };
     const label = document.createElement('div');
     const c = local(e);
-    label.innerHTML = `<div class="name"></div><div class="meta">${c.pts.length} pts · ${c.segs.length} segments · ${e.scan.format}</div>`;
+    const high = e.scan.elevated ? ' · <strong>en hauteur</strong>' : e.looksHigh ? ' · <span title="Rien à moins de 1 m : le robot était-il posé sur un meuble ? (case dans la pose)">en hauteur ?</span>' : '';
+    label.innerHTML = `<div class="name"></div><div class="meta">${c.pts.length} pts · ${c.segs.length} segments · ${e.scan.format}${high}</div>`;
     label.firstChild.textContent = e.name;
     const rm = Object.assign(document.createElement('button'), { className: 'remove', textContent: '×', title: 'Retirer' });
     rm.onclick = (ev) => {
@@ -146,6 +148,7 @@ function renderPoseEditor() {
   if (document.activeElement !== $('poseY')) $('poseY').value = e.pose.y.toFixed(3);
   if (document.activeElement !== $('poseT')) $('poseT').value = e.pose.theta.toFixed(2);
   $('poseFlip').checked = e.flip;
+  $('poseHigh').checked = Boolean(e.scan.elevated);
 }
 
 let rebuildTimer = null;
@@ -691,16 +694,28 @@ function refreshClean() {
   state.corners = null;
   if (!state.grid) return;
   const vis = state.scans.filter((e) => e.visible);
-  let segments = [];
-  if (state.vector && !state.vector.params.absence) segments = state.vector.segments;
-  else if (state.vector) {
-    const m = new VectorMap([], { ...vecParams(), absence: false });
-    for (const e of vis) m.integrateScan(...integrateOpts(e));
-    segments = m.segments;
+  // Scans pris en hauteur (robot posé sur un meuble) : ils passent au-dessus des meubles et les
+  // effaceraient. Les cartes propres sont faites avec les scans au sol ; les scans en hauteur
+  // ne donnent que la frontière de la salle (les grands murs qu'ils voient par-dessus les meubles).
+  const floor = vis.filter((e) => !e.scan.elevated);
+  const high = floor.length > 0 && floor.length < vis.length;
+  const base = high ? floor : vis;
+  let grid = state.grid;
+  if (high) {
+    grid = gridFromScan(floor[0].scan, floor[0].pose, gridParams(), filterOpts(), { flipAngles: floor[0].flip });
+    for (const e of floor.slice(1)) grid.integrateScan(...integrateOpts(e));
   }
-  const c = cleanMaps(state.grid, segments, vis.map((e) => e.pose), {
+  const noAbsence = (list) => {
+    const m = new VectorMap([], { ...vecParams(), absence: false });
+    for (const e of list) m.integrateScan(...integrateOpts(e));
+    return m.segments;
+  };
+  let segments = [];
+  if (state.vector) segments = state.vector.params.absence || high ? noAbsence(base) : state.vector.segments;
+  const c = cleanMaps(grid, segments, base.map((e) => e.pose), {
     vector: { minObservations: Math.max(1, Number($('vecMinObs').value) || 1) },
-    views: vis.map((e) => ({ pose: e.pose, points: worldPoints(e) })), // meubles surélevés
+    views: base.map((e) => ({ pose: e.pose, points: worldPoints(e) })), // meubles surélevés
+    barriers: high && state.vector ? cleanVectorMap(noAbsence(vis)).segments : [],
   });
   state.gridClean = c.grid;
   if (state.vector) {
@@ -808,7 +823,7 @@ function freezeReference() {
       grid: clean ? state.gridClean : state.grid,
       segments: clean ? state.vectorClean.segments : state.vector.segments,
       corners: clean ? state.corners ?? [] : [],
-      scans: vis.map((e) => ({ name: e.name, pose: e.pose })),
+      scans: vis.map((e) => ({ name: e.name, pose: e.pose, elevated: e.scan.elevated })),
       clean,
     }),
   );
@@ -1214,6 +1229,13 @@ for (const id of ['poseX', 'poseY', 'poseT']) {
 $('poseFlip').onchange = () => {
   if (!state.selected) return;
   state.selected.flip = $('poseFlip').checked;
+  renderScanList();
+  poseChanged();
+};
+$('poseHigh').onchange = () => {
+  if (!state.selected) return;
+  // enregistré dans le fichier du scan (« # pris en hauteur : ... ») à l'export
+  state.selected.scan = setElevated(state.selected.scan, $('poseHigh').checked);
   renderScanList();
   poseChanged();
 };

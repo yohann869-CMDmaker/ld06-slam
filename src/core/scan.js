@@ -168,7 +168,37 @@ export function parseScanCSV(text, name = 'scan') {
     points.push({ angle, r, intensity });
   }
 
-  return { name, pose, poseFound, points, format: cols ? cols.format : 'vide', comments };
+  const elevated = comments.some((c) => ELEVATED_RE.test(c));
+  return { name, pose, poseFound, points, format: cols ? cols.format : 'vide', comments, elevated };
+}
+
+/**
+ * Scan pris en hauteur (robot posé sur l'armoire, sur une table...) : marqué dans le fichier par
+ * une ligne de commentaire « # pris en hauteur : ... ». Il coupe la salle à une autre hauteur :
+ * il passe au-dessus des meubles. Il sert au recalage (il voit bien les murs) mais pas aux
+ * cartes, faites pour le robot au sol.
+ */
+export const ELEVATED_RE = /^pris en hauteur\b/i;
+
+/** Marque (ou démarque) un scan comme pris en hauteur, avec la raison (support, ...). Nouvel objet. */
+export function setElevated(scan, elevated, reason = 'posé sur un meuble') {
+  const comments = (scan.comments ?? []).filter((c) => !ELEVATED_RE.test(c));
+  if (elevated) comments.push(`pris en hauteur : ${reason}`);
+  return { ...scan, comments, elevated };
+}
+
+/**
+ * Indice d'un scan pris en hauteur, d'après ses mesures : au-dessus des meubles, le lidar ne voit
+ * aucun obstacle proche (pieds de chaises, de tables) et presque que des murs lointains. Mesuré
+ * sur la salle : scans en hauteur 0 ou 1 point à moins de 1 m et portée médiane de 4,7 à 6,1 m ;
+ * scans au sol 9 à 220 points à moins de 1 m et portée médiane de 0,7 à 2,8 m.
+ */
+export function looksElevated(scan, filter = DEFAULT_FILTER) {
+  const r = validPoints(scan, filter)
+    .map((p) => p.r)
+    .sort((a, b) => a - b);
+  if (r.length < 50) return false;
+  return r.filter((d) => d < 1).length < 3 && r[Math.floor(r.length / 2)] >= 4;
 }
 
 /** Points valides : impact présent, distance dans [minRange, maxRange], intensité suffisante. */

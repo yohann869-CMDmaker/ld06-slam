@@ -82,7 +82,7 @@ Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
   sur la direction dominante, morceaux fusionnés, coins fermés, segments hors de la pièce retirés).
   Les **objets fixes** (table, armoire, tableau : segments vus par au moins 2 scans) sont gardés,
   en violet, et redessinés dans la grid map ; le fouillis vu par un seul scan est retiré. Un
-  meuble sous lequel le lidar passe en partie (table sur roulettes, tableau) est **surélevé** :
+  meuble sous lequel le lidar passe en partie (tableau sur deux pieds) est **surélevé** :
   pointillés, cellules grises ; un meuble posé au sol (armoire) : trait plein, cellules noires.
 - **Exporter tout le jour 1** : 7 figures PNG avec titre, échelle et légende (nuages de points,
   grid map brute et propre, segments extraits, carte vectorielle brute et propre, plan de la

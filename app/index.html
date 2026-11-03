@@ -45,6 +45,7 @@
           <label>θ (°)<input type="number" id="poseT" step="0.5"></label>
         </div>
         <label class="check"><input type="checkbox" id="poseFlip"> Angles bruts horaires (inverser le sens)</label>
+        <label class="check" title="Robot posé sur un meuble : le lidar passe au-dessus des meubles. Le scan sert au recalage et aux murs, pas aux cartes propres."><input type="checkbox" id="poseHigh"> Scan pris en hauteur (robot posé sur un meuble)</label>
         <div class="row">
           <button id="btnPoseReset">Pose du fichier</button>
           <button id="btnScanExport">Exporter avec cette pose</button>

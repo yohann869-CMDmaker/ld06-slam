@@ -1,17 +1,18 @@
 // Construit la carte de référence de la salle (jour 2) à partir des scans réels :
 //   1. lecture des scans et de leurs poses (posées à la main dans l'application) ;
 //   2. recalage automatique (multi-résolution + ICP, chaque scan face aux autres) ;
-//   3. grid map et carte vectorielle, puis versions propres et coins ;
+//   3. grid map et carte vectorielle (scans pris au sol seulement), puis versions propres,
+//      murs et meubles (posés au sol ou surélevés) et coins ;
 //   4. enregistrement : data/reference/carte_reference.json (chargeable dans l'application),
 //      data/reference/poses_recalees.csv et un aperçu docs/img/j2_carte_reference.png.
 // Usage : node scripts/build-reference.mjs [dossier des scans, défaut data/real]
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { parseScanCSV, scanToLocalXY, scanToWorldXY } from '../src/core/scan.js';
+import { looksElevated, parseScanCSV, scanToLocalXY, scanToWorldXY } from '../src/core/scan.js';
 import { gridFromScan } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { autoAlign, consistency } from '../src/core/matching.js';
-import { cleanMaps, isPartlyOccupied, objectGroups } from '../src/core/cleanup.js';
+import { cleanMaps, cleanVectorMap, isPartlyOccupied, objectGroups } from '../src/core/cleanup.js';
 import { makeReferenceMap, referenceBounds, serializeReferenceMap } from '../src/core/refmap.js';
 import { hex, Raster } from './lib/raster.mjs';
 
@@ -35,14 +36,24 @@ const mean = (a) => Math.round((100 * a.reduce((x, y) => x + y, 0)) / a.length);
 const before = mean(consistency(items.map((i) => i.points), items.map((i) => i.pose)));
 const after = mean(consistency(items.map((i) => i.points), poses));
 
-// 3. cartes brutes puis propres (sans découpe par les faisceaux : sur données réelles, une petite
-//    erreur de pose suffirait à découper des murs, et les meubles seraient effacés)
-const grid = gridFromScan(scans[0], poses[0]);
-scans.slice(1).forEach((s, k) => grid.integrateScan(s, poses[k + 1]));
+// 3. cartes brutes puis propres, avec les scans pris au sol seulement : un scan pris en hauteur
+//    (robot posé sur l'armoire ou sur la table) passe au-dessus des meubles et les effacerait.
+//    Il a servi au recalage ci-dessus (il voit bien les murs). Pas de découpe par les faisceaux :
+//    sur données réelles, une petite erreur de pose suffirait à découper des murs.
+for (const s of scans) {
+  if (!s.elevated && looksElevated(s)) console.warn(`Attention : ${s.name} semble pris en hauteur (rien à moins de 1 m) ; sinon ajouter « # pris en hauteur : ... » dans le fichier`);
+}
+const floor = scans.map((s, k) => k).filter((k) => !scans[k].elevated);
+const grid = gridFromScan(scans[floor[0]], poses[floor[0]]);
+floor.slice(1).forEach((k) => grid.integrateScan(scans[k], poses[k]));
 const vm = new VectorMap([], { absence: false });
-scans.forEach((s, k) => vm.integrateScan(s, poses[k]));
-const views = scans.map((s, k) => ({ pose: poses[k], points: scanToWorldXY(s, poses[k]) }));
-const vc = cleanMaps(grid, vm.segments, poses, { views });
+floor.forEach((k) => vm.integrateScan(scans[k], poses[k]));
+const views = floor.map((k) => ({ pose: poses[k], points: scanToWorldXY(scans[k], poses[k]) }));
+// frontière de la salle : murs vus par tous les scans (d'en haut, le mur derrière l'armoire est visible)
+const vmAll = new VectorMap([], { absence: false });
+scans.forEach((s, k) => vmAll.integrateScan(s, poses[k]));
+const barriers = cleanVectorMap(vmAll.segments).segments;
+const vc = cleanMaps(grid, vm.segments, floor.map((k) => poses[k]), { views, barriers });
 const gridClean = vc.grid;
 const corners = vc.corners;
 const objects = vc.segments.filter((s) => s.kind === 'objet');
@@ -53,7 +64,7 @@ const ref = makeReferenceMap({
   grid: gridClean,
   segments: vc.segments,
   corners,
-  scans: scans.map((s, k) => ({ name: s.name, pose: poses[k] })),
+  scans: scans.map((s, k) => ({ name: s.name, pose: poses[k], elevated: s.elevated })),
   clean: true,
 });
 await mkdir(ROOT + 'data/reference', { recursive: true });
@@ -79,12 +90,14 @@ img.metric(1);
 // murs en noir, meubles en violet : trait plein posés au sol, pointillés surélevés
 for (const s of vc.segments) img.line(s.x1, s.y1, s.x2, s.y2, hex(s.kind === 'objet' ? '#7048e8' : '#1d2327'), 4, s.raised ? [10, 7] : null);
 for (const c of corners) img.dot(c.x, c.y, 5, hex('#f59e0b'));
-poses.forEach((p) => img.robot(p, hex('#1c7ed6'), 5));
+// robots au sol en bleu, robots posés en hauteur (recalage seulement) en orange
+poses.forEach((p, k) => img.robot(p, hex(scans[k].elevated ? '#e8590c' : '#1c7ed6'), 5));
 await mkdir(ROOT + 'docs/img', { recursive: true });
 await writeFile(ROOT + 'docs/img/j2_carte_reference.png', img.png());
 
 const st = gridClean.stats();
 console.log(`${scans.length} scans recalés : ${before} % -> ${after} % de points cohérents`);
+console.log(`Cartes construites avec les ${floor.length} scans pris au sol ; en hauteur (recalage seulement) : ${scans.filter((s) => s.elevated).map((s) => s.name).join(', ') || 'aucun'}`);
 console.log(`Grid map : ${gridClean.width} x ${gridClean.height} cellules de ${gridClean.res} m (${st.free} libres, ${st.occupied} occupées)`);
 console.log(`Carte vectorielle : ${vc.segments.length} segments dont ${objects.length} d'objets fixes (${objects.filter((s) => s.raised).length} surélevés), ${corners.length} coins, direction des murs ${vc.dominant.toFixed(1)}°`);
 for (const g of objectGroups(vc.segments)) {

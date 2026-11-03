@@ -109,6 +109,15 @@ direct 10/18 → 16/18.
 | Faisceau compté deux fois sous la table | Il traverse le côté proche puis le côté opposé | Comptage par meuble (segments reliés par leurs coins), un faisceau compte une fois |
 | Pointillés peu visibles dans la vue propre | Cellules noires continues sous le tracé | Cellules d'un meuble surélevé « occupées en partie » (p = 0,75) dessinées en gris clair |
 
+### Scans pris en hauteur (précision de Yohan : premier scan sur l'armoire, deuxième sur la table)
+
+| Problème | Cause | Correction |
+| --- | --- | --- |
+| Robot « dans » l'armoire et « sous » la table | Il était posé dessus : premier scan sur l'armoire, deuxième sur la table (sur 3 boîtes) | Scans marqués `# pris en hauteur : ...` ; `ls09`, `ls08` (mêmes vues) et `ls12` reconnus d'après leurs mesures (rien à moins de 1 m) |
+| Table comptée surélevée (23 %) | Les faisceaux des scans pris en hauteur passaient au-dessus de la table, comptés « dessous » ; ils effaçaient aussi la table dans la grid map | Cartes et meubles construits avec les scans au sol : table 4 % (le lidar ne passe pas sous la table), tableau 61 % |
+| Armoire classée mur, mur de droite en morceaux | Depuis le sol, le mur derrière les meubles n'est pas vu ; l'extérieur rejoint l'armoire | Les grands murs vus d'en haut ferment l'extérieur et complètent le contour de la salle |
+| Table sur roulettes non montrée | L'espace sous la table est plus bas que le plan du lidar : l'information n'est pas dans les mesures | À ajouter à la main (étiquettes, carte sémantique) |
+
 Ajouts après lecture des documents du cours : localisation sur trois références et six
 méthodes (dont le calcul direct inspiré de l'article « Mars Attacks! »), coins, oubli des
 segments rarement vus, banc d'essai chiffré du jour 2.

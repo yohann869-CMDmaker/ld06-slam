@@ -70,52 +70,79 @@ nouveaux scans lèvent l'ambiguïté : en y, ces deux scans reviennent à 9 cm e
 poses manuelles (ils en étaient à 62 et 49 cm). Le recalage automatique n'est donc fiable
 qu'avec assez de recouvrement entre scans.
 
-| Mesure | 7 scans (2 nov.) | 18 scans (3 nov.) |
+### Scans pris en hauteur
+
+Deux scans ont été pris le robot **posé sur un meuble** : le premier (`175527`, origine de la
+carte) **sur l'armoire**, le deuxième (`175930`) **sur la table du milieu**, sur trois boîtes. Tous
+les autres ont été pris au sol. Un scan pris en hauteur coupe la salle à une autre hauteur : il
+passe **au-dessus** des meubles et ne voit presque que des murs. Trois scans LidarScope ont la
+même signature :
+
+| Scan | Points sur les murs | Points à moins de 1 m | Portée médiane | Pris |
+| --- | --- | --- | --- | --- |
+| `175527` | 96 % | 0 | 6,0 m | sur l'armoire (indiqué) |
+| `175930` | 77 % | 0 | 4,9 m | sur la table (indiqué) |
+| `ls09` | 100 % | 0 | 6,1 m | sur l'armoire (même vue que `175527` à 97 %) |
+| `ls08` | 67 % | 1 | 4,7 m | sur la table (même vue que `175930` à 67 %) |
+| `ls12` | 94 % | 0 | 5,3 m | en hauteur, support à confirmer |
+| 13 autres | 10 à 62 % | 9 à 220 | 0,7 à 2,8 m | au sol |
+
+Ces scans sont marqués dans leur fichier par une ligne `# pris en hauteur : ...` (case « Scan
+pris en hauteur » dans l'application ; `looksElevated` signale un scan qui en a l'air : rien à
+moins de 1 m et portée médiane d'au moins 4 m). Ils servent au **recalage** (ils voient les murs
+de loin) et à la **frontière de la salle** (les grands murs qu'ils voient par-dessus les
+meubles), mais pas aux cartes : grid map, carte vectorielle et meubles sont construits avec les
+13 scans au sol, à la hauteur du robot qui se localisera.
+
+Conséquence : les mesures précédentes sur la table étaient faussées. Ses cellules étaient
+effacées en partie par les faisceaux des scans pris en hauteur, qui passaient **au-dessus**, et
+ces faisceaux comptaient comme « passés dessous ».
+
+| Mesure | 7 scans (2 nov.) | 18 scans (3 nov.), cartes avec les 13 scans au sol |
 | --- | --- | --- |
 | Points cohérents entre scans | 45 % → 60 % | 75 % → 82 % |
-| Grid map | 279 × 304 cellules de 5 cm | 280 × 304 cellules de 5 cm |
-| Carte vectorielle | 31 segments, 9 coins | 29 segments (13 murs, 16 d'objets fixes), 16 coins |
-| Emprise | 12,6 m × 13,9 m | 12,7 m × 14,1 m |
+| Grid map | 279 × 304 cellules de 5 cm | 277 × 302 cellules de 5 cm |
+| Carte vectorielle | 31 segments, 9 coins | 26 segments (10 murs, 16 de meubles dont 6 surélevés), 13 coins |
+| Emprise | 12,6 m × 13,9 m | 12,6 m × 14,0 m |
 
 ![Carte de référence de la salle](img/j2_carte_reference.png)
 
-*Carte à 18 scans. Sol blanc, murs gris (grid map propre), murs en noir, objets fixes en violet
-(table du milieu, armoire contre le mur de droite, tableau en diagonale dans le coin en bas à
-gauche, meubles le long du mur du haut) : trait plein posés au sol, pointillés surélevés ; coins
-orange, poses des scans en bleu. Ancienne carte à
-7 scans : [j2_carte_reference_7scans.png](img/j2_carte_reference_7scans.png) (rectangle central
-ouvert et décalé).*
+*Carte à 18 scans. Sol blanc, inconnu gris (dont l'intérieur de la table et le dessous des
+bureaux, invisibles depuis le sol), murs en noir, meubles en violet (table du milieu, armoire
+contre le mur de droite, tableau en diagonale dans le coin en bas à gauche, meubles le long des
+murs) : trait plein posés au sol, pointillés surélevés ; coins orange ; robots au sol en bleu,
+robots posés en hauteur en orange. Ancienne carte à 7 scans :
+[j2_carte_reference_7scans.png](img/j2_carte_reference_7scans.png).*
 
-**Objets fixes.** Les meubles fixés au sol (table, armoire, tableau) sont gardés dans la carte
-propre (méthode : [algorithmes.md](algorithmes.md), § 6). Ils disparaissaient auparavant : dans la
-grid map, les faisceaux d'autres scans passent sous la table et effacent ses cellules (17
-cellules occupées pour 8 m de contour), et la découpe par les absences effaçait leurs segments
-(8,3 m → 0,2 m pour la table). Ils sont maintenant reconnus parce que plusieurs scans les voient
-(2 à 5 scans par côté), alors que le fouillis (chaises, sacs) n'est vu que par un scan.
+**Objets fixes.** Les meubles (table, armoire, tableau) sont gardés dans la carte propre
+(méthode : [algorithmes.md](algorithmes.md), § 6). Ils disparaissaient auparavant : dans la grid
+map, des faisceaux effaçaient leurs cellules (17 cellules occupées pour 8 m de contour de table),
+et la découpe par les absences effaçait leurs segments (8,3 m → 0,2 m pour la table). Ils sont
+maintenant reconnus parce que plusieurs scans les voient (2 à 5 scans par côté), alors que le
+fouillis (chaises, sacs) n'est vu que par un scan. Depuis le sol, le mur derrière l'armoire
+n'est pas vu : ce sont les grands murs vus d'en haut qui ferment la salle à cet endroit.
 
-**Meubles surélevés.** La table est sur roulettes et le tableau sur deux pieds : le plan du lidar
-passe en partie dessous. Pour chaque meuble, on compte les faisceaux qui s'arrêtent dessus et
-ceux qui le traversent pour toucher quelque chose derrière (scans pris depuis la salle) :
+**Meubles surélevés.** Pour chaque meuble, on compte, avec les scans au sol, les faisceaux qui
+s'arrêtent dessus et ceux qui passent dessous pour toucher quelque chose derrière :
 
 | Meuble | Faisceaux passés dessous | Classement |
 | --- | --- | --- |
-| Armoire (contre le mur de droite) | 6 % | posée au sol |
-| Meuble de 0,9 m contre le mur du haut | 6 % | posé au sol |
-| Table du milieu | 23 % | surélevée |
-| Tableau (coin en bas à gauche) | 58 % | surélevé |
-| Autres meubles le long des murs (bureaux) | 30 à 78 % | surélevés |
+| Armoire (contre le mur de droite) | 1 % | posée au sol |
+| Table du milieu | 4 % | posée au sol (pour le lidar) |
+| Meubles de 0,9 m et 0,45 m contre le mur du haut | 2 et 7 % | posés au sol |
+| Tableau (coin en bas à gauche) | 61 % | surélevé |
+| Autres meubles le long des murs (bureaux, meuble contre le mur de droite) | 19 à 42 % | surélevés |
 
-Les meubles posés au sol plafonnent à 6 % (petites erreurs de pose) ; le seuil est fixé à 15 %.
-Sur le plan, un meuble surélevé est dessiné en **pointillés** (convention des plans d'architecte
-pour ce qui est au-dessus du sol), un meuble posé au sol en trait plein ; dans la grid map, ses
-cellules sont « occupées en partie » (gris clair, p = 0,75) : il reste un obstacle pour le robot.
+Seuil : 15 %. Un meuble surélevé est dessiné en **pointillés** (convention des plans d'architecte
+pour ce qui est au-dessus du sol) et ses cellules sont « occupées en partie » (gris clair,
+p = 0,75 : il reste un obstacle pour le robot) ; un meuble posé au sol est en trait plein.
 
-Deux observations le confirment : les robots des scans `175930` et `ls08` ont leur centre 15 à
-24 cm à l'intérieur de l'emprise de la table (le robot s'est glissé en partie dessous). À
-l'inverse, le robot du premier scan (`175527`, origine de la carte) et de `ls09` est placé dans
-l'emprise de l'armoire, et voit à travers trois de ses faces : ces deux scans sont ignorés pour
-juger l'armoire (vue de la salle, elle arrête 94 % des faisceaux). Point à vérifier sur place :
-la position exacte du robot au premier scan par rapport à l'armoire.
+**La table est sur roulettes, mais le lidar ne passe pas dessous** : 4 % seulement des faisceaux
+des scans au sol la traversent, comme l'armoire. L'espace entre le sol et la table est plus bas
+que le plan du lidar : pour un lidar 2D à cette hauteur, la table est un bloc. Le tableau, sur
+deux pieds, laisse passer 61 % des faisceaux. Le 23 % mesuré d'abord pour la table venait des
+scans pris en hauteur. Montrer que la table est sur roulettes demande donc une information que
+le capteur ne mesure pas (étiquette ajoutée à la main, carte sémantique).
 
 Dans l'application, section **Carte de référence (jour 2)** :
 
@@ -131,21 +158,22 @@ Vérification sur les 18 scans : chacun est placé à 25 cm, 15 cm et 8° de sa 
 Les scans ont servi à construire la carte : c'est un contrôle de cohérence, pas encore
 l'évaluation sur des scans de test indépendants.
 
-| Référence | Méthode | 7 scans | 18 scans, murs + fouillis | 18 scans, murs + objets fixes | Erreur médiane (dernière carte) | Temps |
+| Référence | Méthode | 7 scans | 18 scans, murs + fouillis | 18 scans, carte des scans au sol (au sol / en hauteur) | Erreur médiane | Temps |
 | --- | --- | --- | --- | --- | --- | --- |
-| Carte vectorielle | Multi-résolution | 13/18 | 17/18 | **17/18** | 1,0 cm / 0,25° | 95 ms |
-| Carte vectorielle | Calcul direct | 13/18 | 10/18 | **16/18** | 1,3 cm / 0,31° | 7 ms |
-| Grid map | Multi-résolution | 13/18 | 13/18 | **18/18** | 2,2 cm / 0,00° | 98 ms |
-| Grid map | Descente de gradient | 11/18 | 13/18 | **18/18** | 2,2 cm / 0,13° | 5 ms |
+| Carte vectorielle | Multi-résolution | 13/18 | 17/18 | **16/18** (11/13, 5/5) | 1,4 cm / 0,25° | 98 ms |
+| Carte vectorielle | Calcul direct | 13/18 | 10/18 | **15/18** (11/13, 4/5) | 1,5 cm / 0,27° | 3 ms |
+| Grid map | Multi-résolution | 13/18 | 13/18 | **17/18** (12/13, 5/5) | 2,8 cm / 0,25° | 100 ms |
+| Grid map | Descente de gradient | 11/18 | 13/18 | **18/18** (13/13, 5/5) | 2,4 cm / 0,12° | 3 ms |
 
-- Les 18 scans améliorent la multi-résolution sur la carte vectorielle (13 → 17), méthode
-  proposée par défaut avec la carte de référence. Le seul échec (`ls02`) est à 5,1 cm.
-- Les **objets fixes** aident toutes les autres méthodes : la table et l'armoire sont de bons
-  repères, et le fouillis vu par un seul scan, qui proposait de faux appariements, est retiré.
-  Sur la grid map, 18/18 réussites ; la descente de gradient le fait en 5 ms.
-- Le calcul direct reste local : au-delà de sa marge de 25 cm il décroche encore sur 2 scans
-  qui voient peu de murs.
-- Sur la grid map, l'erreur médiane de 2 cm vient de l'épaisseur des murs (cellules de 5 cm).
+- Les 18 scans améliorent la multi-résolution sur la carte vectorielle (13 → 16 ou 17), méthode
+  proposée par défaut avec la carte de référence.
+- Les **meubles** aident toutes les méthodes : la table et l'armoire sont de bons repères, et le
+  fouillis vu par un seul scan, qui proposait de faux appariements, est retiré. Sur la grid map,
+  la descente de gradient relocalise les 18 scans, en 3 ms.
+- La plupart des échecs restants sont juste au-dessus du seuil (5,1 à 6,3 cm : `ls02`, `ls03`,
+  `180026`, près des bureaux du haut), dans l'incertitude des poses recalées elles-mêmes ; le
+  calcul direct, local, décroche vraiment sur 2 scans (27 et 52 cm).
+- Sur la grid map, l'erreur médiane de 2 à 3 cm vient de l'épaisseur des murs (cellules de 5 cm).
 - Peu de points d'un scan tombent sur la carte (40 à 60 %) même quand la pose est juste : la
   carte propre ne garde ni les chaises ni les pieds des tables mobiles.
 

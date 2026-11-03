@@ -1,4 +1,5 @@
 # Robot position: x=-3.8192m, y=-5.3461m, theta=-89.00deg
+# pris en hauteur : support à confirmer (détecté : aucun point à moins de 1 m, portée médiane 5,3 m)
 # importé de LidarScope : scan_12.csv, pose LidarScope (0.6180, -3.2207, 0.00)
 # un seul tour : 307 points gardés sur 693
 angle_deg,distance_m,intensity

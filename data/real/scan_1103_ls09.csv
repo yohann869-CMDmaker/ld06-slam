@@ -1,4 +1,5 @@
 # Robot position: x=-0.0333m, y=0.0747m, theta=-82.00deg
+# pris en hauteur : sur l'armoire (détecté : même vue que scan_1102_175527 à 97 %, aucun point à moins de 1 m)
 # importé de LidarScope : scan_09.csv, pose LidarScope (-4.7359, 0.6592, 7.00)
 # un seul tour : 306 points gardés sur 766
 angle_deg,distance_m,intensity

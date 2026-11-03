@@ -152,10 +152,12 @@
       </div>
       <div class="row">
         <button id="btnGlobal" class="primary-btn" title="Sans pose de départ : cherche dans toute la salle (positions de sol, orientations tirées des murs)">Localisation globale (pose inconnue)</button>
+        <button id="btnLocExport" title="Tous les résultats de localisation de la séance, en CSV (scan, référence, méthode, pose, écart, temps, confiance)">Exporter les résultats</button>
       </div>
       <p class="hint">« Localiser » part de la pose actuelle du scan (à placer d'abord à peu près à la main),
         fenêtre ±50 cm, ±20°. « Localisation globale » ignore la pose : elle cherche dans toute la salle et
         montre les 3 meilleures candidates (1 = retenue). « Pose du fichier » annule.</p>
+      <p class="hint" id="locLogStat"></p>
       <div id="locResult" class="stat"></div>
     </section>
 

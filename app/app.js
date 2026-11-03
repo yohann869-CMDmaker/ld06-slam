@@ -27,6 +27,7 @@ const state = {
   vector: null,
   reference: null,
   labels: null, // carte sémantique de la salle : meubles nommés (data/reference/etiquettes.json)
+  locLog: [], // résultats de localisation de la séance (bouton « Exporter les résultats »)
   view: { x: 4, y: 3, scale: 70 }, // centre de la vue (m) et pixels par mètre
   mouse: null,
 };
@@ -986,6 +987,48 @@ function locReference(target) {
   return vectorReference(m.segments);
 }
 
+/**
+ * Journal des localisations de la séance : une ligne par résultat (localiser, comparer, globale),
+ * exporté en CSV par « Exporter les résultats » pour le compte rendu.
+ */
+function logLocalization(entry, method, init, r, extra = {}) {
+  const ref = entry.scan.poseFound ? entry.filePose : null;
+  const moved = poseError(r.pose, init);
+  const err = ref ? poseError(r.pose, ref) : null;
+  state.locLog.push({
+    date: new Date().toLocaleString('fr-FR'),
+    scan: entry.name,
+    reference: $('locRef').selectedOptions[0]?.textContent ?? $('locRef').value,
+    method,
+    init,
+    pose: r.pose,
+    moved,
+    err,
+    inliers: r.inliers,
+    time: r.time,
+    ...extra,
+  });
+  $('locLogStat').textContent = `${state.locLog.length} résultat(s) enregistré(s) dans la séance`;
+}
+
+function exportLocLog() {
+  if (!state.locLog.length) return toast('Aucun résultat : localiser d\'abord un scan');
+  const f = (v, d = 4) => (Number.isFinite(v) ? v.toFixed(d) : '');
+  const q = (t) => `"${String(t).replace(/"/g, '""')}"`;
+  const lines = [
+    'date,scan,reference,methode,depart_x_m,depart_y_m,depart_theta_deg,pose_x_m,pose_y_m,pose_theta_deg,correction_cm,correction_deg,ecart_pose_fichier_cm,ecart_pose_fichier_deg,points_sur_carte,temps_ms,confiance',
+    ...state.locLog.map((l) =>
+      [
+        q(l.date), q(l.scan), q(l.reference), q(l.method),
+        f(l.init.x), f(l.init.y), f(l.init.theta, 2), f(l.pose.x), f(l.pose.y), f(l.pose.theta, 2),
+        f(l.moved.dist * 100, 1), f(l.moved.angle, 2), l.err ? f(l.err.dist * 100, 1) : '', l.err ? f(l.err.angle, 2) : '',
+        f(l.inliers, 3), f(l.time, 0), q(l.confidence ?? ''),
+      ].join(','),
+    ),
+  ];
+  download('resultats_localisation.csv', lines.join('\n') + '\n', 'text/csv');
+}
+
 /** Tableau des résultats : déplacement depuis la pose initiale, écart à la pose du fichier, temps. */
 function showLocResults(results, init, entry) {
   const ref = entry.scan.poseFound ? entry.filePose : null;
@@ -1016,6 +1059,7 @@ function runLocalize() {
   e.pose = r.pose;
   poseChanged();
   showLocResults([r], init, e);
+  logLocalization(e, METHODS[r.method].label, init, r);
   toast(`${e.name} localisé (${METHODS[r.method].label}) : ${Math.round(r.inliers * 100)} % des points sur la carte`);
 }
 
@@ -1044,6 +1088,9 @@ async function runGlobal() {
   e.pose = r.pose;
   poseChanged();
   state.globalCandidates = r.candidates.slice(0, 3).map((c) => c.pose);
+  logLocalization(e, 'Localisation globale', init, r, {
+    confidence: `${r.ambiguous ? 'ambiguë' : 'fiable'} (${r.evidence?.best ?? 0} / ${r.evidence?.second ?? 0} points)`,
+  });
   draw();
   const filePose = e.scan.poseFound ? e.filePose : null;
   const rows = r.candidates.slice(0, 3).map((c, k) => {
@@ -1077,6 +1124,7 @@ async function runCompare() {
     toast(`Comparaison : ${METHODS[m].label}…`);
     await tick();
     results.push(localize(ref, local(e).pts, init, m));
+    logLocalization(e, `${METHODS[m].label} (comparaison)`, init, results.at(-1));
   }
   showLocResults(results, init, e);
   toast('Comparaison terminée (pose du scan inchangée)');
@@ -1332,6 +1380,7 @@ $('locRef').onchange = fillMethods;
 $('btnLocalize').onclick = runLocalize;
 $('btnCompare').onclick = runCompare;
 $('btnGlobal').onclick = runGlobal;
+$('btnLocExport').onclick = exportLocLog;
 $('vecMinObs').onchange = () => {
   refreshClean();
   draw();

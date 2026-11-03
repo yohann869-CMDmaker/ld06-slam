@@ -137,6 +137,16 @@ direct 10/18 → 16/18.
 | Salle meublée simulée jugée ambiguë | Indicateur fondé sur le rapport des parts de points sur la carte : les murs, symétriques, dominent | Indicateur fondé sur les seuls points qui départagent les deux candidates : 3 échecs sur 3 signalés, 11 réponses fiables sur 11 justes |
 | Scène de test presque symétrique | Le deuxième meuble était le symétrique du premier par rapport au centre | Étagère placée sans symétrie ; la salle vide sert de test d'ambiguïté |
 
+### Évaluation sur données réelles
+
+| Problème | Cause | Correction |
+| --- | --- | --- |
+| Pas de scans de test enregistrés aujourd'hui | Tests faits dans l'application, non sauvegardés | Export LidarScope du 2 novembre (16 scans jamais utilisés pour la carte) importé comme jeu de test indépendant (`data/test/`) |
+| Poses de ces scans dans un autre repère | Repère de LidarScope du 2 novembre, aucun scan commun | Changement de repère estimé sur les réponses fiables de la localisation globale (médianes) |
+| Taux de réussite plafonnés à 85 % sur les scans de la carte | La pose de référence de 2 scans sur 13 est elle-même douteuse (`ls03` : 49,5 cm) | Incertitude des poses de référence mesurée (médiane 2 cm / 0,3°) et donnée avec les résultats |
+| Colonne « pris en hauteur » vide pour le jeu de test | Scans d'hier non marqués | Détection automatique indiquée (« en hauteur ? (détecté) ») |
+| Résultats de l'application non conservés | Rien n'était enregistré | Journal de la séance et bouton « Exporter les résultats » (CSV) |
+
 Ajouts après lecture des documents du cours : localisation sur trois références et six
 méthodes (dont le calcul direct inspiré de l'article « Mars Attacks! »), coins, oubli des
 segments rarement vus, banc d'essai chiffré du jour 2.

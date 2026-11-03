@@ -309,7 +309,86 @@ multi-résolution sur une large fenêtre, puis ICP, comme la stratégie « Full 
 
 ## Données réelles
 
-Sur les scans de la salle, la pose vraie n'est pas connue. La référence est la pose recalée à la
-main ; son incertitude se mesure en recalant deux fois le même scan à partir de zéro. Le tableau
-de comparaison de l'application affiche, pour chaque méthode, la correction appliquée, l'écart
-à la pose du fichier et la part des points du scan à moins de 5 cm de la carte.
+`node scripts/benchmark-reel.mjs` applique aux scans réels le protocole de la simulation (4 niveaux
+de perturbation, 2 tirages, réussite < 5 cm et < 2°). Tableaux complets :
+[jour2_reel.md](jour2_reel.md) (données brutes en CSV).
+
+**A. Scans de la carte, chacun localisé sur des cartes construites sans lui** (13 scans pris au
+sol ; pose de référence = pose recalée) :
+
+| Référence | Méthode | Réussite | 5 cm / 2° | 15 cm / 5° | 30 cm / 10° | 45 cm / 18° | Erreur médiane | Temps |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Grid map de localisation | Multi-résolution | **85 %** | 85 % | 85 % | 85 % | 85 % | 2,6 cm / 0,25° | 122 ms |
+| Grid map de localisation | Force brute | 77 % | 69 % | 77 % | 77 % | 85 % | 3,2 cm / 0,50° | 339 ms |
+| Grid map de localisation | Descente de gradient | 76 % | 92 % | 85 % | 77 % | 50 % | 2,8 cm / 0,45° | 5 ms |
+| Grid map de localisation | ICP | 56 % | 92 % | 85 % | 46 % | 0 % | 4,4 cm / 0,77° | 10 ms |
+| Grid map de localisation | Filtre particulaire | 22 % | 27 % | 19 % | 19 % | 23 % | 7,1 cm / 1,22° | 38 ms |
+| Carte vectorielle | Multi-résolution | 78 % | 77 % | 77 % | 77 % | 81 % | 1,7 cm / 0,25° | 127 ms |
+| Carte vectorielle | Calcul direct | 57 % | 85 % | 85 % | 54 % | 4 % | 3,1 cm / 0,61° | 5 ms |
+| Scan de référence | Multi-résolution | **86 %** | 85 % | 85 % | 85 % | 88 % | 1,6 cm / 0,50° | 121 ms |
+| Scan de référence | Force brute | **88 %** | 88 % | 88 % | 88 % | 88 % | 2,1 cm / 0,50° | 347 ms |
+
+- Le classement est **le même qu'en simulation** : les recherches systématiques (force brute,
+  multi-résolution) réussissent quel que soit l'écart de départ ; ICP et calcul direct sont
+  excellents de près (85 à 92 % jusqu'à 15 cm / 5°) mais locaux (0 à 8 % à 45 cm / 18°) ; la
+  descente de gradient est le meilleur compromis rapide (5 ms) jusqu'à 30 cm ; le filtre
+  particulaire seul reste imprécis (≈ 7 cm), il sert d'initialisation.
+- Les taux plafonnent vers 85 % parce que la **pose de référence elle-même** est douteuse pour
+  2 scans sur 13 (`ls03` et `180026`, voir l'incertitude ci-dessous) : toutes les méthodes s'y
+  accordent entre elles mais pas avec la pose recalée.
+- L'erreur médiane réelle (1,6 à 3 cm) est 10 fois celle de la simulation (≈ 1 à 3 mm) : bruit du
+  lidar réel, meubles déplacés, et incertitude de la référence.
+
+**Incertitude des poses de référence réelles.** Chaque scan est relocalisé, depuis sa pose
+recalée, sur une grid map construite sans lui : le déplacement mesure le désaccord entre cette
+carte indépendante et le recalage commun.
+
+| | Désaccord (carte sans le scan / recalage commun) | Pose manuelle / pose recalée |
+| --- | --- | --- |
+| Médiane | **2,0 cm / 0,28°** | 8,4 cm / 1,0° |
+| Maximum | 49,5 cm / 1,25° (`ls03`) | 24,4 cm / 2,0° |
+
+Les poses de référence sont donc connues à **± 2 cm et ± 0,3°** en général ; `ls03` fait exception
+(près des murs parallèles du haut, deux positions à 50 cm l'une de l'autre expliquent presque aussi
+bien le scan : la même ambiguïté que la localisation globale signale). Les poses posées à la main
+étaient à 8 cm et 1° en médiane, 24 cm au pire.
+
+**B. Jeu de test indépendant** (`data/test/`, 16 scans du 2 novembre jamais utilisés pour la
+carte, voir [data/test/README.md](../data/test/README.md)) : localisation globale, sans pose de
+départ, sur la carte de référence.
+
+| | Nombre | Écart aux poses posées à la main dans LidarScope |
+| --- | --- | --- |
+| Réponses fiables | 12/16 | toutes à moins de 41 cm et 2,4° (médiane 21 cm) |
+| Réponses ambiguës | 4/16 | 3 à plus de 1 m (fausses), 1 à 14 cm (juste) |
+
+Le placement à la main dans LidarScope est approximatif (≈ 20 à 30 cm) : l'écart montre que la
+localisation globale trouve **la bonne place** pour toutes ses réponses fiables, et que ses
+erreurs sont signalées. Depuis la pose trouvée, perturbée de 5 cm / 2° à 45 cm / 18°, la
+multi-résolution et la force brute sur la grid map reviennent à moins de 5 cm et 2° **dans 100 %
+des cas** (écart médian 0,7 à 1,1 cm), la descente de gradient dans 92 %.
+
+Les 6 scans de test sans aucun obstacle à moins de 1 m sont détectés « pris en hauteur » (table,
+armoire) ; ils sont aussi bien localisés (85 à 87 % de leurs points sur la carte) : les murs, vus
+par-dessus les meubles, sont les mêmes à toutes les hauteurs.
+
+**Dans l'application**, « Exporter les résultats » enregistre en CSV toutes les localisations de la
+séance (scan, référence, méthode, pose de départ, pose trouvée, correction, écart à la pose du
+fichier, part des points sur la carte, temps, confiance de la localisation globale).
+
+## Conclusion du jour 2
+
+- **Référence** : la carte de la salle (18 scans, recalage commun à ± 2 cm) est figée avec deux
+  couches, un plan étiqueté (murs, table, armoire, tableau) pour l'humain et une grid map de
+  localisation (tout ce que le lidar voit au sol) pour le robot.
+- **Méthodes** : six méthodes sur trois références, évaluées sur simulation et sur données réelles
+  avec le même protocole. Pour un robot, la combinaison retenue est une recherche (multi-résolution,
+  100 ms) suivie d'un affinage rapide (ICP, descente de gradient ou calcul direct, 5 à 10 ms).
+- **Localisation globale** : sans pose de départ, la bonne place est trouvée en 0,5 à 1 s grâce à
+  l'astuce des murs ; quand elle se dit fiable elle a eu raison à chaque fois (11/11 sur les scans
+  de la carte, 12/12 sur le jeu de test), et ses erreurs sont signalées.
+- **Limites** : zones de murs longs et parallèles (glissement de 50 cm possible), scans collés aux
+  meubles qui voient peu, meubles déplacés entre deux séances, et les informations que le lidar ne
+  mesure pas (table sur roulettes : étiquette ajoutée à la main).
+- **Suite (jour 3)** : lever les ambiguïtés en suivant le robot dans le temps (odométrie + filtre),
+  construire la carte en même temps qu'on se localise (SLAM) et fermer les boucles.

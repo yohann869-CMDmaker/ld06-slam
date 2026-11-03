@@ -4,7 +4,7 @@ Projet du module *Cartographie et localisation appliquée à la robotique mobile
 Outils pour exploiter les scans du lidar LD06 : affichage de nuages de points,
 grid map, carte vectorielle, puis (jours 2 et 3) scan matching et SLAM.
 
-Comptes rendus : [jour 1](docs/jour1.md), [jour 2](docs/jour2.md) ([banc d'essai](docs/jour2_benchmark.md), [localisation globale](docs/jour2_global.md)), [journal des erreurs et corrections](docs/journal.md), [algorithmes expliqués](docs/algorithmes.md).
+Comptes rendus : [jour 1](docs/jour1.md), [jour 2](docs/jour2.md) ([banc d'essai](docs/jour2_benchmark.md), [localisation globale](docs/jour2_global.md), [données réelles](docs/jour2_reel.md)), [journal des erreurs et corrections](docs/journal.md), [algorithmes expliqués](docs/algorithmes.md).
 
 ## Prérequis
 
@@ -101,6 +101,7 @@ Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
   s'affiche en fond et sert de référence.
 - **Figer les cartes actuelles** puis **Enregistrer…** : faire de la carte des scans visibles la
   nouvelle référence.
+- **Exporter les résultats** : toutes les localisations de la séance en CSV (pour le compte rendu).
 - **Localisation globale (pose inconnue)** : sans placer le scan, la pose est cherchée dans toute
   la salle ; les 3 meilleures candidates sont dessinées, avec un verdict « Fiable » ou « Ambiguë ».
 - Ouvrir un scan, le placer à peu près à la main, puis **Localiser le scan sélectionné** (référence
@@ -125,6 +126,7 @@ Autres scripts :
 | `node scripts/figures-jour1.mjs` | Figures du compte rendu (`docs/img/`) et mesures de précision |
 | `node scripts/benchmark-jour2.mjs` | Banc d'essai de la localisation (`docs/jour2_benchmark.md`) |
 | `node scripts/benchmark-global.mjs` | Banc d'essai de la localisation globale, sans pose de départ (`docs/jour2_global.md`) |
+| `node scripts/benchmark-reel.mjs` | Banc d'essai sur données réelles : scans de la carte (sans eux) et jeu de test `data/test` (`docs/jour2_reel.md`) |
 | `node scripts/build-reference.mjs` | Carte de référence de la salle à partir de `data/real/` (`data/reference/`) |
 | `node scripts/import-lidarscope.mjs <export>` | Importe un export LidarScope dans `data/real/` (un seul tour par scan, changement de repère) |
 
@@ -142,7 +144,7 @@ node --test "test/*.test.js"
 | `app/` | Application web interactive |
 | `scripts/` | Outils en ligne de commande (données simulées, construction de cartes, figures) |
 | `test/` | Tests unitaires (`node --test`) |
-| `data/` | Scans : `sim/` simulés avec pose connue, `real/` acquis sur le robot |
+| `data/` | Scans : `sim/` simulés avec pose connue, `real/` acquis sur le robot (carte), `test/` jeu de test indépendant, `reference/` carte de référence et étiquettes |
 | `docs/` | Compte rendu et figures |
 
 | Module | Rôle |

@@ -65,9 +65,10 @@ sont nécessaires :
   est en miroir, et le lecteur rétablit `y = +d·sin(angle)` ;
 - des trames sont perdues pendant l'envoi du texte. Sur un tour réel de la salle, 508 points
   ont été reçus avec un pas de 0,45° (environ 800 points attendus par tour), et le plus grand
-  trou fait 74°. Comme le robot est immobile, les dernières lignes prises depuis la même
-  position sont fusionnées. Une ligne dont l'écart médian au dernier tour dépasse 5 cm a été
-  prise avant un déplacement : elle est écartée.
+  trou fait 74°. Un scan reste néanmoins **un seul tour**. Une première version fusionnait
+  les derniers tours pris « depuis la même position », jugée sur l'écart médian entre tours.
+  Elle a été abandonnée : une rotation de 2 à 3° du robot entre deux tours garde un écart
+  médian faible mais dédouble les murs lointains, ce qui biaise le scan.
 
 Le même tour a donné 37 segments, avec un écart quadratique de 6 à 12 mm autour des droites
 ajustées. C'est le bruit réel du LD06, contre 1 cm supposé dans la simulation.
@@ -301,3 +302,34 @@ les 6 scans.
   des clusters trop courts, ignorés.
 - Les seuils (8 cm, 10°, 20 cm, 3 cm) sont réglés pour le bruit simulé ; ils seront à
   revalider sur les scans réels.
+
+## 6. Données réelles, reconstruction propre et exports
+
+**Recalage des scans réels.** Les poses des scans de la salle ont été posées à la main dans
+l'outil de visualisation, puis affinées par le bouton « Recaler automatiquement » : recherche
+exhaustive multi-résolution sur un champ de distance, puis ICP, chaque scan étant aligné sur
+tous les autres (deux passes). Sur 7 scans réels, la part des points à moins de 10 cm d'un
+autre scan passe de 45 % (poses manuelles) à 60 % ; un scan décalé de 60 cm à la main a été corrigé.
+
+![Carte avec les poses manuelles](img/j1_reel_recalage_manuel.png)
+![Carte après recalage automatique](img/j1_reel_recalage_auto.png)
+
+**Reconstruction propre** (`src/core/cleanup.js`), pour un rendu lisible comme un plan (style MapTool) :
+
+- grid map : suppression des poussières (groupes de moins de 3 cellules occupées), ouverture
+  morphologique de l'espace libre (retire les faisceaux sortis par les fenêtres : le lidar ne voit
+  pas les vitres), seules les zones libres reliées à une position du robot sont gardées, petits
+  trous bouchés, murs fermés le long du sol ;
+- carte vectorielle : direction dominante des murs (histogramme des orientations pondéré par la
+  longueur), segments à moins de 7° redressés sur cette direction ou sa perpendiculaire, fusion
+  des morceaux d'un même mur, coins fermés, segments hors de la pièce retirés, **oubli des
+  segments rarement vus** (option « vus par au moins N scans », comme la carte SLAM de la
+  présentation RoboCup qui oublie les segments rarement observés) ;
+- **coins** (points d'intérêt orientés du document « carte vectorielle ») : intersection de deux
+  murs presque perpendiculaires qui se rejoignent, avec la direction de la bissectrice.
+
+**Exports** (bouton « Exporter tout le jour 1 ») : 7 figures avec titre, échelle et légende
+(nuages de points, grid map brute et propre, segments extraits, carte vectorielle brute et
+propre, plan de la salle), grid maps (CSV) et cartes vectorielles (TXT) brutes et propres,
+coins, poses, et deux fichiers directement importables dans MapTool (coordonnées décalées en
+positif, dimensions de la scène indiquées en tête du fichier).

@@ -4,7 +4,7 @@ Projet du module *Cartographie et localisation appliquée à la robotique mobile
 Outils pour exploiter les scans du lidar LD06 : affichage de nuages de points,
 grid map, carte vectorielle, puis (jours 2 et 3) scan matching et SLAM.
 
-Compte rendu : [jour 1](docs/jour1.md).
+Comptes rendus : [jour 1](docs/jour1.md), [jour 2](docs/jour2.md) ([banc d'essai](docs/jour2_benchmark.md)), [journal des erreurs et corrections](docs/journal.md).
 
 ## Prérequis
 
@@ -45,9 +45,8 @@ forme `>lidar:x:y;x:y;…|xy` (format Teleplot). L'application lit directement c
 L'application garde la dernière ligne complète (celle coupée par la copie est ignorée) et
 corrige le miroir des x/y de la librairie. Le programme de test perd des trames, car il envoie
 du texte plus lentement que le lidar ne produit ses mesures : chaque tour a des trous (jusqu'à
-74° sur un tour réel), à des endroits différents d'un tour à l'autre. Les dernières lignes
-prises depuis la même position sont donc fusionnées (jusqu'à 4). Une ligne prise avant un
-déplacement du robot est détectée et écartée.
+74° sur un tour réel). Un scan correspond toujours à **un seul tour** : fusionner plusieurs
+tours biaiserait le scan dès que le robot a bougé ou tourné, même un peu, entre deux tours.
 
 Ensuite, pour chaque scan : recalage manuel et enregistrement, comme aux étapes 5 et 6 ci-dessous.
 
@@ -75,6 +74,17 @@ Variante sans perte de trames : un programme qui n'envoie un scan que sur demand
 Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
 `s` envoie un scan, `i` affiche la vitesse, le nombre de points et les erreurs CRC,
 `r` compte les octets bruts reçus du lidar en 300 ms (diagnostic de câblage ou d'alimentation).
+
+## Cartes propres et exports du jour 1
+
+- **Vue propre (style MapTool)** (section Affichage) : grid map nettoyée (poussières, faisceaux
+  sortis par les fenêtres et petits trous retirés) et carte vectorielle nettoyée (murs redressés
+  sur la direction dominante, morceaux fusionnés, coins fermés, segments hors de la pièce retirés).
+- **Exporter tout le jour 1** : 7 figures PNG avec titre, échelle et légende (nuages de points,
+  grid map brute et propre, segments extraits, carte vectorielle brute et propre, plan de la
+  salle), les grid maps (CSV) et cartes vectorielles (TXT) brutes et propres, `poses.csv`, et deux
+  fichiers pour MapTool (`maptool_carte_vectorielle.txt`, `maptool_grid_map.csv`). Pour les
+  ouvrir dans MapTool, régler la largeur et la hauteur indiquées en tête du fichier, puis importer.
 
 ## Ligne de commande
 

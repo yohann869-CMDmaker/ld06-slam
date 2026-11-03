@@ -5,7 +5,8 @@ import { looksElevated, parseScanCSV, scanToLocalXY, serializeScanCSV, setElevat
 import { GridMap, gridFromScan, occupancyRGB, UNKNOWN_RGB } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { autoAlign, consistency, matchScan } from '../src/core/matching.js';
-import { cleanMaps, cleanVectorMap, isPartlyOccupied, labelPositions, parseLabels } from '../src/core/cleanup.js';
+import { cleanMaps, cleanVectorMap, dominantDirection, isPartlyOccupied, labelPositions, parseLabels } from '../src/core/cleanup.js';
+import { globalLocalize } from '../src/core/globalloc.js';
 import { gridReference, localize, METHODS, METHODS_BY_REFERENCE, scanReference, vectorReference } from '../src/core/localization.js';
 import { dayOneExports, drawLabels, MAPTOOL, maptoolColor } from './figures.js';
 import { makeReferenceMap, parseReferenceMap, referenceBounds, serializeReferenceMap } from '../src/core/refmap.js';
@@ -92,6 +93,7 @@ const integrateOpts = (e) => [e.scan, e.pose, filterOpts(), { flipAngles: e.flip
 
 function select(entry) {
   state.selected = entry;
+  state.globalCandidates = null;
   renderScanList();
   renderPoseEditor();
   draw();
@@ -613,6 +615,7 @@ function render() {
     if (state.vectorClean) strokeCleanSegments(state.vectorClean.segments);
     drawCorners();
     drawMapLabels();
+    drawGlobalCandidates();
     for (const e of state.scans.filter((v) => v.visible)) drawRobot(e, e === state.selected);
     drawLive(s);
     renderStatus();
@@ -694,8 +697,40 @@ function render() {
 
   for (const e of visible) drawRobot(e, e === sel);
   drawMapLabels();
+  drawGlobalCandidates();
   drawLive(s);
   renderStatus();
+}
+
+/** Candidates de la localisation globale : cercles numérotés (1 = pose retenue), orientés. */
+function drawGlobalCandidates() {
+  const cands = state.globalCandidates;
+  if (!cands) return;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '600 11px system-ui, sans-serif';
+  cands.forEach((p, k) => {
+    const x = sx(p.x);
+    const y = sy(p.y);
+    const a = p.theta * DEG;
+    ctx.strokeStyle = k === 0 ? '#2b8a3e' : '#e8590c';
+    ctx.lineWidth = 2;
+    ctx.setLineDash(k === 0 ? [] : [4, 3]);
+    ctx.beginPath();
+    ctx.arc(x, y, 14, 0, 2 * Math.PI);
+    ctx.moveTo(x + 14 * Math.cos(a), y - 14 * Math.sin(a));
+    ctx.lineTo(x + 24 * Math.cos(a), y - 24 * Math.sin(a));
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.beginPath();
+    ctx.arc(x, y, 8, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.fillText(String(k + 1), x, y + 0.5);
+  });
+  ctx.restore();
 }
 
 /** Étiquettes de la carte sémantique (case « Étiquettes ») : sur la carte propre, sinon sur la carte de référence. */
@@ -976,11 +1011,53 @@ function runLocalize() {
     return toast(err.message);
   }
   const init = { ...e.pose };
+  state.globalCandidates = null;
   const r = localize(ref, local(e).pts, init, $('locMethod').value);
   e.pose = r.pose;
   poseChanged();
   showLocResults([r], init, e);
   toast(`${e.name} localisé (${METHODS[r.method].label}) : ${Math.round(r.inliers * 100)} % des points sur la carte`);
+}
+
+/**
+ * Localisation globale (étape 3) : pose du scan sélectionné retrouvée SANS pose de départ, dans
+ * toute la salle (src/core/globalloc.js). Positions candidates : sol de la grid map de la
+ * référence ; orientations : tirées de la direction des murs. Les trois meilleures candidates
+ * sont dessinées (1 = retenue) ; si la deuxième est presque aussi bonne, la réponse est ambiguë.
+ */
+async function runGlobal() {
+  const e = requireSelection();
+  if (!e) return;
+  let ref;
+  try {
+    ref = locReference(e);
+  } catch (err) {
+    return toast(err.message);
+  }
+  const grid = ref.grid ?? refmap.map?.grid ?? state.gridLoc ?? state.grid;
+  if (!grid) return toast('Il faut une grid map : choisir « Carte de référence : grid map »');
+  const walls = (refmap.map?.segments ?? state.vectorClean?.segments ?? []).filter((s) => s.kind !== 'objet');
+  toast('Localisation globale : recherche dans toute la salle…');
+  await tick();
+  const init = { ...e.pose };
+  const r = globalLocalize(ref, local(e).pts, { grid, mapDominant: walls.length ? dominantDirection(walls) : undefined });
+  e.pose = r.pose;
+  poseChanged();
+  state.globalCandidates = r.candidates.slice(0, 3).map((c) => c.pose);
+  draw();
+  const filePose = e.scan.poseFound ? e.filePose : null;
+  const rows = r.candidates.slice(0, 3).map((c, k) => {
+    const err = filePose ? poseError(c.pose, filePose) : null;
+    return `<tr class="${k === 0 ? 'best' : ''}"><td>${k + 1}</td><td>(${c.pose.x.toFixed(2)} ; ${c.pose.y.toFixed(2)} ; ${c.pose.theta.toFixed(1)}°)</td>
+      <td>${Math.round(c.inliers * 100)} %</td>${err ? `<td>${(err.dist * 100).toFixed(1)} cm / ${err.angle.toFixed(1)}°</td>` : ''}</tr>`;
+  });
+  const ev = r.evidence ?? { best: 0, second: 0 };
+  const verdict = r.ambiguous
+    ? `<strong>Ambiguë</strong> : ${ev.best} points pour la 1<sup>re</sup> candidate contre ${ev.second} pour la 2<sup>e</sup> (points qui les départagent) : salle presque symétrique depuis ce point de vue, à vérifier.`
+    : `<strong>Fiable</strong> : ${ev.best} points pour la 1<sup>re</sup> candidate contre ${ev.second} pour la 2<sup>e</sup> (points qui les départagent).`;
+  $('locResult').innerHTML = `<table class="loc-table"><tr><th>#</th><th>Pose</th><th>Points sur la carte</th>${filePose ? '<th>Écart pose fichier</th>' : ''}</tr>${rows.join('')}</table>
+    <p>${verdict}</p><p class="hint">${r.positions} positions × ${r.angles} orientations (${r.mode === 'murs' ? 'tirées des murs' : 'tous les angles'}), ${Math.round(r.time)} ms. Pose de départ ignorée (était à ${(poseError(r.pose, init).dist * 100).toFixed(0)} cm).</p>`;
+  toast(`${e.name} : localisation globale ${r.ambiguous ? 'ambiguë' : 'fiable'}, ${Math.round(r.inliers * 100)} % des points sur la carte`);
 }
 
 /** Toutes les méthodes depuis la même pose initiale ; la pose du scan n'est pas modifiée. */
@@ -1254,6 +1331,7 @@ $('showRefMap').addEventListener('change', draw);
 $('locRef').onchange = fillMethods;
 $('btnLocalize').onclick = runLocalize;
 $('btnCompare').onclick = runCompare;
+$('btnGlobal').onclick = runGlobal;
 $('vecMinObs').onchange = () => {
   refreshClean();
   draw();

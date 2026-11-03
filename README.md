@@ -4,7 +4,7 @@ Projet du module *Cartographie et localisation appliquée à la robotique mobile
 Outils pour exploiter les scans du lidar LD06 : affichage de nuages de points,
 grid map, carte vectorielle, puis (jours 2 et 3) scan matching et SLAM.
 
-Comptes rendus : [jour 1](docs/jour1.md), [jour 2](docs/jour2.md) ([banc d'essai](docs/jour2_benchmark.md)), [journal des erreurs et corrections](docs/journal.md), [algorithmes expliqués](docs/algorithmes.md).
+Comptes rendus : [jour 1](docs/jour1.md), [jour 2](docs/jour2.md) ([banc d'essai](docs/jour2_benchmark.md), [localisation globale](docs/jour2_global.md)), [journal des erreurs et corrections](docs/journal.md), [algorithmes expliqués](docs/algorithmes.md).
 
 ## Prérequis
 
@@ -101,6 +101,8 @@ Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
   s'affiche en fond et sert de référence.
 - **Figer les cartes actuelles** puis **Enregistrer…** : faire de la carte des scans visibles la
   nouvelle référence.
+- **Localisation globale (pose inconnue)** : sans placer le scan, la pose est cherchée dans toute
+  la salle ; les 3 meilleures candidates sont dessinées, avec un verdict « Fiable » ou « Ambiguë ».
 - Ouvrir un scan, le placer à peu près à la main, puis **Localiser le scan sélectionné** (référence
   « Carte de référence : vectorielle » ou « grid map ») ou **Comparer les méthodes**.
 
@@ -122,6 +124,7 @@ Autres scripts :
 | `node scripts/gen-sim.mjs` | Régénère le jeu simulé (`data/sim/`) |
 | `node scripts/figures-jour1.mjs` | Figures du compte rendu (`docs/img/`) et mesures de précision |
 | `node scripts/benchmark-jour2.mjs` | Banc d'essai de la localisation (`docs/jour2_benchmark.md`) |
+| `node scripts/benchmark-global.mjs` | Banc d'essai de la localisation globale, sans pose de départ (`docs/jour2_global.md`) |
 | `node scripts/build-reference.mjs` | Carte de référence de la salle à partir de `data/real/` (`data/reference/`) |
 | `node scripts/import-lidarscope.mjs <export>` | Importe un export LidarScope dans `data/real/` (un seul tour par scan, changement de repère) |
 
@@ -154,4 +157,5 @@ node --test "test/*.test.js"
 | `matching.js` | Champ de distance, ICP, recalage automatique des scans |
 | `cleanup.js` | Cartes propres (grid map nettoyée, murs redressés, coins) |
 | `localization.js` | Localisation d'un scan sur une référence (6 méthodes) |
+| `globalloc.js` | Localisation globale : pose retrouvée dans toute la salle, avec indice de confiance |
 | `refmap.js` | Carte de référence figée : enregistrement et relecture (JSON) |

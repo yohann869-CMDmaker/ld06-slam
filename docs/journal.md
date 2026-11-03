@@ -129,6 +129,14 @@ direct 10/18 → 16/18.
 | Zones sombres et points noirs dans la vue propre, sans réalité | Dessous des bureaux invisible depuis le sol (inconnu), pieds de chaises gardés comme obstacles | Plan sémantique (`semanticPlan`) : dans la salle, seuls les murs et les 3 meubles ; l'extérieur ne passe pas par une ouverture de moins de 60 cm |
 | Localisation dégradée sur ce plan (14/18) | Sans les pieds de bureaux, glissement de 47 cm le long des murs parallèles | Deux couches : plan pour l'affichage, grid map de localisation (tout ce que voit le lidar) pour le robot : 18/18 |
 
+### Étape 3 du jour 2 : localisation globale
+
+| Problème | Cause | Correction |
+| --- | --- | --- |
+| Test trop facile (18/18) | Les scans testés avaient servi à construire la carte | Banc d'essai « leave-one-out » : chaque scan sur une carte construite sans lui (`benchmark-global.mjs`) |
+| Salle meublée simulée jugée ambiguë | Indicateur fondé sur le rapport des parts de points sur la carte : les murs, symétriques, dominent | Indicateur fondé sur les seuls points qui départagent les deux candidates : 3 échecs sur 3 signalés, 11 réponses fiables sur 11 justes |
+| Scène de test presque symétrique | Le deuxième meuble était le symétrique du premier par rapport au centre | Étagère placée sans symétrie ; la salle vide sert de test d'ambiguïté |
+
 Ajouts après lecture des documents du cours : localisation sur trois références et six
 méthodes (dont le calcul direct inspiré de l'article « Mars Attacks! »), coins, oubli des
 segments rarement vus, banc d'essai chiffré du jour 2.

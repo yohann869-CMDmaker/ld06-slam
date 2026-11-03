@@ -203,6 +203,56 @@ l'évaluation sur des scans de test indépendants.
 - Peu de points d'un scan tombent sur la carte (40 à 60 %) même quand la pose est juste : la
   carte propre ne garde ni les chaises ni les pieds des tables mobiles.
 
+## Localisation globale (pose de départ inconnue)
+
+Les méthodes précédentes partent d'une pose approximative (fenêtre ±50 cm, ±20°). Un robot qui
+démarre n'importe où dans la salle n'en a pas : la **localisation globale**
+(`src/core/globalloc.js`, bouton « Localisation globale (pose inconnue) ») cherche dans toute la
+salle.
+
+1. **Positions candidates** : les cellules de sol de la grid map de localisation, tous les 20 cm,
+   à au moins 10 cm d'un obstacle : 2 141 positions dans la salle.
+2. **Orientations candidates, d'après les murs** : les murs d'une salle sont presque tous
+   parallèles ou perpendiculaires. La direction dominante des segments du scan comparée à celle
+   des murs de la carte (0,6°) donne l'orientation du robot **à 90° près** : 4 orientations
+   (± 4°, pas de 1°), soit 36 au lieu de 180. Si le scan n'a pas de direction nette (moins de
+   25 % de ses segments alignés), on teste tous les angles.
+3. **Tri** : score de chaque pose (2 141 × 36 = 77 000) sur le champ de distance lissé
+   (σ = 15 cm, 150 points du scan).
+4. **Affinage** des 6 meilleures poses distinctes (multi-résolution locale ±30 cm, puis ICP),
+   classées par la part des points du scan à moins de 5 cm de la carte.
+5. **Confiance** : la meilleure candidate est comparée à la deuxième (distante d'au moins 50 cm
+   ou 10°) sur les **points qui les départagent** : sur la carte pour l'une et pas pour
+   l'autre. Les murs d'une salle presque symétrique s'expliquent des deux façons ; ce sont les
+   meubles et les détails qui tranchent. Réponse **ambiguë** si la deuxième a au moins moitié
+   autant de « points à elle » que la première, ou si moins de 8 points départagent.
+
+Dans l'application, les trois meilleures candidates sont dessinées (1 en vert = pose retenue, 2 et
+3 en orange) et le verdict s'affiche : « Fiable » ou « Ambiguë, à vérifier ».
+
+**Évaluation** (`node scripts/benchmark-global.mjs`, détail dans
+[jour2_global.md](jour2_global.md)) : chaque scan est localisé sans pose de départ sur une carte
+construite **sans lui**. Réussite = moins de 5 cm et de 2°.
+
+| Jeu | Variante | Réussite | Erreur médiane | Temps moyen | Réponses « fiables » justes | Échecs signalés ambigus |
+| --- | --- | --- | --- | --- | --- | --- |
+| Simulé (6 scans) | orientations des murs | 6/6 | 0,7 cm / 0,17° | 0,6 s | 6/6 | – |
+| Simulé (6 scans) | tous les angles | 6/6 | 1,6 cm / 0,25° | 0,9 s | 6/6 | – |
+| Salle, scans au sol (13) | orientations des murs | 10/13 | 1,3 cm / 0,32° | 0,9 s | **11/11** (avec les 5 en hauteur) | **3/3** |
+| Salle, scans au sol (13) | tous les angles | 9/13 | 1,4 cm / 0,19° | 1,7 s | 11/13 | 2/4 |
+| Salle, scans en hauteur (5) | orientations des murs | 5/5 | 1,6 cm / 0,12° | 0,8 s | | |
+
+- L'**astuce des murs** divise par 5 le nombre de poses testées et par 2 le temps, et rend la
+  méthode plus sûre : en testant tous les angles, deux réponses dites fiables sont fausses.
+- **Quand la localisation globale se dit fiable, elle a raison** (11 fois sur 11). Les 3 échecs
+  sont tous signalés ambigus : `ls02` (scan collé aux bureaux, vue très courte : erreur de 14 m),
+  `ls03` (glissement de 53 cm le long des murs parallèles du haut, la même ambiguïté qu'au
+  recalage du 2 novembre) et `180026` (6,8 cm, juste au-dessus du seuil). L'indicateur est
+  prudent : 4 bonnes réponses sont aussi signalées, leur deuxième candidate étant presque aussi
+  plausible (souvent la même pose glissée le long d'un mur).
+- Pour un robot, une réponse ambiguë se lève en bougeant un peu et en refaisant un scan, ou en
+  suivant plusieurs hypothèses (filtre particulaire), ce qui mène au SLAM du jour 3.
+
 ## Références
 
 | Référence | Représentation utilisée | Construction dans l'application |

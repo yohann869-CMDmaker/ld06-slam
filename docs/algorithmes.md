@@ -23,6 +23,7 @@ scan (angle, distance)  ──► points du robot ──► points du monde ─�
 | Cartes propres, objets fixes, meubles surélevés, coins | `src/core/cleanup.js` | `cleanMaps`, `cleanGrid`, `cleanVectorMap`, `classifySegments`, `markRaised`, `findCorners` |
 | Recalage des scans | `src/core/matching.js` | `DistanceField`, `matchScan`, `icp`, `autoAlign` |
 | Localisation (jour 2) | `src/core/localization.js` | `localize` et les six méthodes |
+| Localisation globale (jour 2) | `src/core/globalloc.js` | `globalLocalize`, `freePositions`, `candidateAngles` |
 
 ---
 
@@ -220,7 +221,23 @@ Bouton « Recaler automatiquement » (`autoAlign`) : le premier scan sert de rep
 C'est la stratégie de la présentation RoboCup MSL 2022 : une recherche complète pour
 l'initialisation, puis une recherche limitée.
 
-### 11. Évaluation (exigée par l'énoncé du jour 2)
+### 11. Localisation globale (pose de départ inconnue)
+
+`globalLocalize` (`src/core/globalloc.js`) cherche dans toute la salle au lieu d'une fenêtre :
+
+1. positions : cellules de sol de la grid map, tous les 20 cm, à 10 cm au moins d'un obstacle
+   (`freePositions`) ;
+2. orientations : direction dominante des segments du scan (`scanDominant`) comparée à celle des
+   murs de la carte : θ = d_carte − d_scan + k·90° (k = 0..3), ± 4° (`candidateAngles`), ou tous
+   les angles si le scan n'a pas de direction nette ;
+3. tri de toutes les poses sur le champ de distance lissé (σ = 15 cm), puis affinage des 6
+   meilleures poses distinctes (multi-résolution locale, ICP) ;
+4. confiance : points du scan sur la carte pour la 1re candidate et pas pour la 2e, et
+   inversement. Ambiguë si la 2e a au moins moitié autant de ces points que la 1re.
+
+Résultats : [jour2.md](jour2.md) (localisation globale) et [jour2_global.md](jour2_global.md).
+
+### 12. Évaluation (exigée par l'énoncé du jour 2)
 
 `scripts/benchmark-jour2.mjs` : scans simulés à pose vraie connue ; pour chaque scan, les
 cartes sont construites avec les autres scans ; mêmes poses initiales pour toutes les méthodes,

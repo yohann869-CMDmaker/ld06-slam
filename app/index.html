@@ -150,8 +150,12 @@
         <button id="btnLocalize" class="primary-btn">Localiser le scan sélectionné</button>
         <button id="btnCompare">Comparer les méthodes</button>
       </div>
-      <p class="hint">Part de la pose actuelle du scan (à placer d'abord à peu près à la main). Fenêtre de recherche
-        ±50 cm, ±20°. « Pose du fichier » annule.</p>
+      <div class="row">
+        <button id="btnGlobal" class="primary-btn" title="Sans pose de départ : cherche dans toute la salle (positions de sol, orientations tirées des murs)">Localisation globale (pose inconnue)</button>
+      </div>
+      <p class="hint">« Localiser » part de la pose actuelle du scan (à placer d'abord à peu près à la main),
+        fenêtre ±50 cm, ±20°. « Localisation globale » ignore la pose : elle cherche dans toute la salle et
+        montre les 3 meilleures candidates (1 = retenue). « Pose du fichier » annule.</p>
       <div id="locResult" class="stat"></div>
     </section>
 

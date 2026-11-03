@@ -37,7 +37,8 @@ function unRunLength(runs, size) {
 
 /**
  * Crée une carte de référence.
- * o = { name, grid, segments, corners, scans: [{ name, pose, elevated }], clean (version propre ou brute) }
+ * o = { name, grid, plan, segments, corners, labels, scans: [{ name, pose, elevated }], clean (version propre ou brute) }
+ * grid : grid map de localisation ; plan : grid map d'affichage (murs et meubles nommés), facultative.
  * elevated : scan pris en hauteur (robot posé sur un meuble), utilisé pour le recalage seulement.
  */
 export function makeReferenceMap(o) {
@@ -46,7 +47,8 @@ export function makeReferenceMap(o) {
     name: o.name ?? 'Carte de référence',
     date: o.date ?? new Date().toISOString(),
     clean: Boolean(o.clean),
-    grid: o.grid,
+    grid: o.grid, // localisation : tout ce que voit le lidar
+    plan: o.plan ?? null, // affichage : murs et meubles nommés (null : la grid sert aussi de plan)
     segments: (o.segments ?? []).map(({ x1, y1, x2, y2, kind, raised }) =>
       kind === 'objet' ? { x1, y1, x2, y2, kind, raised: Boolean(raised) } : { x1, y1, x2, y2 },
     ),
@@ -58,10 +60,36 @@ export function makeReferenceMap(o) {
 }
 
 /** Texte JSON de la carte de référence. */
-export function serializeReferenceMap(ref) {
-  const g = ref.grid;
+/** Grid map -> objet JSON (valeurs 0..255 compressées par plages). */
+function encodeGrid(g) {
   const values = new Array(g.width * g.height);
   for (let k = 0; k < values.length; k++) values[k] = g.value(k);
+  return {
+    resolution: g.res,
+    offI: g.offI,
+    offJ: g.offJ,
+    width: g.width,
+    height: g.height,
+    encoding: 'valeurs 0..255 (0 libre, 128 inconnu, 255 occupé), lignes de bas en haut, plages [valeur, nombre]',
+    runs: runLength(values),
+  };
+}
+
+/** Objet JSON -> grid map. */
+function decodeGrid(gd) {
+  const grid = new GridMap({ resolution: gd.resolution, offI: gd.offI, offJ: gd.offJ, width: gd.width, height: gd.height });
+  const values = unRunLength(gd.runs, gd.width * gd.height);
+  const { lMin, lMax } = grid.params;
+  for (let k = 0; k < values.length; k++) {
+    const v = values[k];
+    if (v === 128) continue; // inconnu : log-odds 0
+    const p = Math.min(0.999, Math.max(0.001, v / 255));
+    grid.logOdds[k] = Math.min(lMax, Math.max(lMin, Math.log(p / (1 - p))));
+  }
+  return grid;
+}
+
+export function serializeReferenceMap(ref) {
   const round = (v) => Math.round(v * 10000) / 10000;
   return JSON.stringify({
     format: REFMAP_FORMAT,
@@ -69,15 +97,10 @@ export function serializeReferenceMap(ref) {
     name: ref.name,
     date: ref.date,
     clean: ref.clean,
-    grid: {
-      resolution: g.res,
-      offI: g.offI,
-      offJ: g.offJ,
-      width: g.width,
-      height: g.height,
-      encoding: 'valeurs 0..255 (0 libre, 128 inconnu, 255 occupé), lignes de bas en haut, plages [valeur, nombre]',
-      runs: runLength(values),
-    },
+    // grid map de localisation : tout ce que le lidar voit depuis le sol (repères du robot)
+    grid: encodeGrid(ref.grid),
+    // plan pour l'humain : murs et meubles nommés seulement (facultatif)
+    ...(ref.plan ? { plan: encodeGrid(ref.plan) } : {}),
     // murs : [x1, y1, x2, y2] ; meubles posés au sol : [..., "objet"] ; surélevés : [..., "objet surélevé"]
     segments: ref.segments.map((s) =>
       [s.x1, s.y1, s.x2, s.y2].map(round).concat(s.kind === 'objet' ? [s.raised ? 'objet surélevé' : 'objet'] : []),
@@ -96,21 +119,12 @@ export function serializeReferenceMap(ref) {
 export function parseReferenceMap(text) {
   const d = JSON.parse(text);
   if (d.format !== REFMAP_FORMAT) throw new Error("Ce fichier n'est pas une carte de référence ld06-slam");
-  const gd = d.grid;
-  const grid = new GridMap({ resolution: gd.resolution, offI: gd.offI, offJ: gd.offJ, width: gd.width, height: gd.height });
-  const values = unRunLength(gd.runs, gd.width * gd.height);
-  const { lMin, lMax } = grid.params;
-  for (let k = 0; k < values.length; k++) {
-    const v = values[k];
-    if (v === 128) continue; // inconnu : log-odds 0
-    const p = Math.min(0.999, Math.max(0.001, v / 255));
-    grid.logOdds[k] = Math.min(lMax, Math.max(lMin, Math.log(p / (1 - p))));
-  }
   return makeReferenceMap({
     name: d.name,
     date: d.date,
     clean: d.clean,
-    grid,
+    grid: decodeGrid(d.grid),
+    plan: d.plan ? decodeGrid(d.plan) : null,
     segments: d.segments.map(([x1, y1, x2, y2, kind]) => ({
       x1,
       y1,

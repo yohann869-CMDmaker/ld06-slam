@@ -72,3 +72,13 @@ test('carte de référence : les étiquettes des meubles sont enregistrées', ()
   const labels = [{ nom: 'Armoire', detail: 'posée au sol', zone: [0, 0, 1, 0.5] }];
   assert.deepEqual(parseReferenceMap(serializeReferenceMap(makeReferenceMap({ grid, labels }))).labels, labels);
 });
+
+test('carte de référence : plan d\'affichage enregistré à côté de la grid map de localisation', () => {
+  const grid = gridFromScan(simulateScan(rectangle(0, 0, 4, 3), { x: 2, y: 1.5, theta: 0 }, { seed: 1 }));
+  const plan = grid.clone();
+  plan.logOdds.fill(-4);
+  const back = parseReferenceMap(serializeReferenceMap(makeReferenceMap({ grid, plan })));
+  assert.equal(back.plan.classify(0), -1);
+  assert.equal(back.grid.classify(0), grid.classify(0));
+  assert.equal(parseReferenceMap(serializeReferenceMap(makeReferenceMap({ grid }))).plan, null);
+});

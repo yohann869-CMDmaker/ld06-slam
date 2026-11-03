@@ -132,6 +132,17 @@ dans la carte de référence et affichées dans l'application (case « Étiquett
 figures 06 et 07. Le détail « sur roulettes » de la table vient de l'observation : le lidar,
 lui, voit la table comme un bloc (voir plus bas).
 
+**Deux couches de grid map.** La carte de référence enregistre :
+
+- le **plan**, pour l'humain (`semanticPlan`) : dans la salle, seuls les murs et les trois
+  meubles restent ; le reste de l'intérieur devient du sol, y compris le dessous des bureaux que
+  le lidar au sol ne voit pas. L'extérieur ne change pas (il n'entre pas par une ouverture de
+  moins de 60 cm). C'est ce que montrent la vue propre, les figures et l'aperçu ;
+- la **grid map de localisation**, pour le robot : tout ce que le lidar voit depuis le sol, y
+  compris les pieds de bureaux et les rangées de chaises. Ce « fouillis » n'a rien à faire sur un
+  plan, mais il sert de repère : localisés sur le plan seul, les scans du haut de la salle
+  glissent de 47 cm le long des murs parallèles (14/18 réussites au lieu de 18/18).
+
 **Objets fixes.** Les meubles (table, armoire, tableau) sont gardés dans la carte propre
 (méthode : [algorithmes.md](algorithmes.md), § 6). Ils disparaissaient auparavant : dans la grid
 map, des faisceaux effaçaient leurs cellules (17 cellules occupées pour 8 m de contour de table),
@@ -176,8 +187,10 @@ l'évaluation sur des scans de test indépendants.
 
 | Référence | Méthode | 7 scans | 18 scans, murs + fouillis | 18 scans, carte finale (au sol / en hauteur) | Erreur médiane | Temps |
 | --- | --- | --- | --- | --- | --- | --- |
-| Grid map | Multi-résolution | 13/18 | 13/18 | **18/18** (13/13, 5/5) | 2,2 cm / 0,25° | 103 ms |
-| Grid map | Descente de gradient | 11/18 | 13/18 | **18/18** (13/13, 5/5) | 2,4 cm / 0,13° | 6 ms |
+| Grid map de localisation | Multi-résolution | 13/18 | 13/18 | **18/18** (13/13, 5/5) | 2,2 cm / 0,25° | 103 ms |
+| Grid map de localisation | Descente de gradient | 11/18 | 13/18 | **18/18** (13/13, 5/5) | 2,4 cm / 0,13° | 6 ms |
+| Plan (murs et 3 meubles) | Multi-résolution | – | – | 14/18 (10/13, 4/5) | 3,2 cm / 0,25° | 106 ms |
+| Plan (murs et 3 meubles) | Descente de gradient | – | – | 16/18 (11/13, 5/5) | 3,5 cm / 0,28° | 3 ms |
 | Carte vectorielle | Multi-résolution | 13/18 | 17/18 | 15/18 (10/13, 5/5) | 1,4 cm / 0,50° | 95 ms |
 | Carte vectorielle | Calcul direct | 13/18 | 10/18 | 14/18 (9/13, 5/5) | 1,3 cm / 0,45° | 3 ms |
 

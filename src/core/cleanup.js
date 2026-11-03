@@ -501,8 +501,8 @@ export const isPartlyOccupied = (grid, k) => grid.classify(k) === 1 && grid.prob
  * des faisceaux, sont découpés avant d'avoir pu être reconnus).
  * options.views : [{ pose, points }] des scans au sol, pour reconnaître les meubles surélevés ;
  * options.barriers : murs vus par tous les scans, y compris pris en hauteur (frontière de la salle) ;
- * options.labels : meubles nommés (carte sémantique, voir applyLabels).
- * Retourne { grid, segments, dominant, corners }.
+ * options.labels : meubles nommés (carte sémantique, voir applyLabels et semanticPlan).
+ * Retourne { grid (plan d'affichage), gridLoc (grid map de localisation), segments, dominant, corners }.
  */
 export function cleanMaps(grid, vectorSegments, poses, options = {}) {
   const walls = cleanGrid(grid, poses, options.grid);
@@ -511,7 +511,13 @@ export function cleanMaps(grid, vectorSegments, poses, options = {}) {
   let segments = classifySegments(segmentsNearFloor(cv.segments, walls), walls, objects);
   if (options.views) segments = markRaised(segments, options.views, options.raised);
   if (options.labels?.length) segments = applyLabels(segments, options.labels);
-  return { grid: drawObjects(walls, segments), segments, dominant: cv.dominant, corners: findCorners(segments) };
+  // grid map de localisation : murs, meubles et tout ce que le lidar voit depuis le sol (pieds de
+  // bureaux, rangées de chaises) : ce sont des repères. Sans eux, des scans glissent de 47 cm le
+  // long des murs parallèles (14/18 scans relocalisés au lieu de 18/18).
+  const gridLoc = drawObjects(walls, segments);
+  // plan pour l'humain : avec la carte sémantique, seuls les murs et les meubles nommés
+  const plan = options.labels?.length ? semanticPlan(gridLoc, segments, options.labels) : gridLoc;
+  return { grid: plan, gridLoc, segments, dominant: cv.dominant, corners: findCorners(segments) };
 }
 
 /** Meubles : groupes de segments 'objet' reliés par leurs extrémités (les 4 côtés d'une table). */
@@ -644,4 +650,96 @@ export function parseLabels(text) {
   const d = JSON.parse(text);
   if (d.format !== 'ld06-slam/etiquettes') throw new Error("Ce fichier n'est pas un fichier d'étiquettes ld06-slam");
   return d.objets.map(({ nom, detail = '', zone }) => ({ nom, detail, zone: zone.map(Number) }));
+}
+
+/**
+ * Plan de la salle avec la carte sémantique : dans la salle, seuls les murs et les meubles nommés
+ * restent des obstacles. Le reste de l'intérieur devient du sol :
+ *  - les cellules occupées loin des murs (chaises, sacs, pieds de bureaux vus d'en bas) ;
+ *  - les zones inconnues enfermées dans la salle (dessous des bureaux, que le lidar au sol ne
+ *    voit pas). L'extérieur (cellules inconnues reliées au bord de la carte, arrêtées par les
+ *    murs) ne change pas. Il ne passe pas par une ouverture de moins de 2 × gapReach (60 cm) entre
+ *    deux murs : un petit trou dans le contour ne fait pas « entrer » l'extérieur dans la salle.
+ * Les zones des meubles nommés sont laissées telles quelles (intérieur de la table : inconnu).
+ * Les murs (segments 'mur', dont les grands murs vus d'en haut) sont tracés en continu.
+ */
+export function semanticPlan(grid, segments, labels, gapReach = 0.3) {
+  const g = grid.clone();
+  const { width: w, height: h } = g;
+  const { lMin, lMax } = g.params;
+  // murs tracés, épaisseur 2 cellules (un remplissage en 4 voisins ne les traverse pas)
+  const wall = new Uint8Array(w * h);
+  for (const s of segments.filter((s) => s.kind === 'mur')) {
+    const [i1, j1] = g.worldToCell(s.x1, s.y1);
+    const [i2, j2] = g.worldToCell(s.x2, s.y2);
+    bresenham(i1, j1, i2, j2, (i, j) => {
+      for (const [di, dj] of [[0, 0], [1, 0], [0, 1]]) if (g.inside(i + di, j + dj)) wall[g.index(i + di, j + dj)] = 1;
+    });
+  }
+  // extérieur : inconnu relié au bord, sans traverser les murs. 1) remplissage par les seules
+  // cellules à plus de R cellules d'un mur (une ouverture de moins de 2R ne laisse pas passer) ;
+  // 2) extension de R + 1 cellules pour reprendre la bande d'extérieur collée aux murs.
+  const R = Math.round(gapReach / g.res);
+  const nearLine = new Uint8Array(w * h);
+  for (let k = 0; k < w * h; k++) {
+    if (!wall[k]) continue;
+    const i = k % w;
+    const j = (k - i) / w;
+    for (let dj = -R; dj <= R; dj++) for (let di = -R; di <= R; di++) if (g.inside(i + di, j + dj)) nearLine[g.index(i + di, j + dj)] = 1;
+  }
+  const outside = new Uint8Array(w * h);
+  const depth = new Int32Array(w * h).fill(-1);
+  const queue = [];
+  const unknown = (k) => !wall[k] && g.classify(k) === 0;
+  for (let k = 0; k < w * h; k++) {
+    const i = k % w;
+    const j = (k - i) / w;
+    if ((i === 0 || j === 0 || i === w - 1 || j === h - 1) && unknown(k) && !nearLine[k]) {
+      outside[k] = 1;
+      queue.push(k);
+    }
+  }
+  for (let q = 0; q < queue.length; q++) {
+    const k = queue[q];
+    const i = k % w;
+    const j = (k - i) / w;
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (!g.inside(i + di, j + dj)) continue;
+      const m = g.index(i + di, j + dj);
+      if (outside[m] || !unknown(m) || nearLine[m]) continue;
+      outside[m] = 1;
+      queue.push(m);
+    }
+  }
+  const ring = queue.slice();
+  for (const k of ring) depth[k] = 0;
+  for (let q = 0; q < ring.length; q++) {
+    const k = ring[q];
+    if (depth[k] > R) continue;
+    const i = k % w;
+    const j = (k - i) / w;
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      if (!g.inside(i + di, j + dj)) continue;
+      const m = g.index(i + di, j + dj);
+      if (outside[m] || !unknown(m)) continue;
+      outside[m] = 1;
+      depth[m] = depth[k] + 1;
+      ring.push(m);
+    }
+  }
+  const nearWall = (i, j) => {
+    for (let dj = -2; dj <= 2; dj++) for (let di = -2; di <= 2; di++) if (g.inside(i + di, j + dj) && wall[g.index(i + di, j + dj)]) return true;
+    return false;
+  };
+  for (let j = 0; j < h; j++) {
+    for (let i = 0; i < w; i++) {
+      const k = g.index(i, j);
+      if (outside[k]) continue;
+      const c = g.cellCenter(i, j);
+      if (labels.some((l) => inZone(c, l.zone))) continue;
+      if (wall[k]) g.logOdds[k] = lMax;
+      else if (g.classify(k) === 0 || (g.classify(k) === 1 && !nearWall(i, j))) g.logOdds[k] = lMin;
+    }
+  }
+  return g;
 }

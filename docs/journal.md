@@ -126,6 +126,8 @@ direct 10/18 → 16/18.
 | « Sur roulettes » invisible pour le lidar | Information hors du plan de mesure | Étiquettes « Table · sur roulettes », « Armoire · posée au sol », « Tableau · sur 2 roues » sur la carte (application, figures 06 et 07, aperçu SVG) |
 | Carte vectorielle moins bonne pour la localisation (15/18) | Moins de repères le long des murs encombrés | Grid map de référence par défaut (18/18) |
 | Scans perdus au rechargement de la page | L'application ne garde rien | Bouton « Scans de la salle » : les 18 scans à leurs poses recalées, avec les étiquettes |
+| Zones sombres et points noirs dans la vue propre, sans réalité | Dessous des bureaux invisible depuis le sol (inconnu), pieds de chaises gardés comme obstacles | Plan sémantique (`semanticPlan`) : dans la salle, seuls les murs et les 3 meubles ; l'extérieur ne passe pas par une ouverture de moins de 60 cm |
+| Localisation dégradée sur ce plan (14/18) | Sans les pieds de bureaux, glissement de 47 cm le long des murs parallèles | Deux couches : plan pour l'affichage, grid map de localisation (tout ce que voit le lidar) pour le robot : 18/18 |
 
 Ajouts après lecture des documents du cours : localisation sur trois références et six
 méthodes (dont le calcul direct inspiré de l'article « Mars Attacks! »), coins, oubli des

@@ -59,14 +59,15 @@ const barriers = cleanVectorMap(vmAll.segments).segments;
 const labelsFile = ROOT + 'data/reference/etiquettes.json';
 const labels = existsSync(labelsFile) ? parseLabels(await readFile(labelsFile, 'utf8')) : [];
 const vc = cleanMaps(grid, vm.segments, floor.map((k) => poses[k]), { views, barriers, labels });
-const gridClean = vc.grid;
+const gridClean = vc.grid; // plan (affichage)
 const corners = vc.corners;
 const objects = vc.segments.filter((s) => s.kind === 'objet');
 
 // 4. enregistrement
 const ref = makeReferenceMap({
   name: `Salle de classe (${scans.length} scans)`,
-  grid: gridClean,
+  grid: vc.gridLoc, // localisation : tout ce que voit le lidar au sol
+  plan: gridClean, // affichage : murs et meubles nommés
   segments: vc.segments,
   corners,
   labels,

@@ -145,6 +145,12 @@ Pour chaque scan :
   meubles réels sont nommés à la main avec une zone ; un objet fixe dont le milieu est dans la
   zone prend le nom du meuble, les autres objets détectés sont retirés. L'étiquette s'écrit au
   centre des segments du meuble.
+- **Deux couches** (`cleanMaps` → `grid` et `gridLoc`) : le **plan** (`semanticPlan`) ne garde
+  dans la salle que les murs et les meubles nommés, et remplit de sol le reste de l'intérieur.
+  L'intérieur est trouvé par un remplissage de l'extérieur depuis le bord de la carte, arrêté par
+  les murs, d'abord par les seules cellules à plus de 30 cm d'un mur (une ouverture de moins de
+  60 cm ne le laisse pas entrer), puis étendu de 30 cm le long des murs. La **grid map de
+  localisation** garde tout ce que le lidar voit depuis le sol : ce sont des repères pour le robot.
 - **Coins** : intersection de deux murs presque perpendiculaires dont les extrémités se
   rejoignent, avec la direction de la bissectrice (point d'intérêt orienté du cours).
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifySegments, cleanGrid, cleanMaps, cleanVectorMap, dominantDirection, drawObjects, isPartlyOccupied, labelPositions, applyLabels, markRaised, objectGroups, parseLabels, segmentsNearFloor } from '../src/core/cleanup.js';
+import { classifySegments, cleanGrid, cleanMaps, cleanVectorMap, dominantDirection, drawObjects, isPartlyOccupied, labelPositions, applyLabels, markRaised, objectGroups, parseLabels, segmentsNearFloor, semanticPlan } from '../src/core/cleanup.js';
 import { GridMap, gridFromScan } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { rectangle, simulateScan } from '../src/core/sim.js';
@@ -192,4 +192,18 @@ test('carte sémantique : seuls les meubles nommés restent des objets, les murs
   assert.deepEqual([p.nom, p.detail, p.found], ['Table', 'sur roulettes', true]);
   assert.ok(Math.abs(p.x - 1.0) < 1e-9 && Math.abs(p.y - 0.5) < 1e-9, 'au centre des segments de la table');
   assert.throws(() => parseLabels('{"format":"autre"}'), /étiquettes/);
+});
+
+test('plan de la salle : fouillis et zones inconnues de la salle effacés, meubles nommés et extérieur gardés', () => {
+  const g = roomWithTable(); // pièce 2 m × 2 m, intérieur de table inconnu en (1.2..1.6, 1.2..1.5)
+  g.logOdds[g.index(8, 20)] = 4; // une chaise au milieu de la pièce
+  for (let j = 18; j < 21; j++) for (let i = 18; i < 22; i++) g.logOdds[g.index(i, j)] = 0; // dessous d'un bureau, jamais vu
+  const walls = [S(0.45, 0.45, 2.55, 0.45), S(2.55, 0.45, 2.55, 2.55), S(2.55, 2.55, 0.45, 2.55), S(0.45, 2.55, 0.45, 0.45)].map((s) => ({ ...s, kind: 'mur' }));
+  const table = [{ ...objet(1.2, 1.2, 1.6, 1.2), label: 'Table' }];
+  const plan = semanticPlan(g, [...walls, ...table], [{ nom: 'Table', detail: '', zone: [1.1, 1.1, 1.7, 1.6] }]);
+  assert.equal(plan.classify(plan.index(8, 20)), -1, 'chaise effacée');
+  assert.equal(plan.classify(plan.index(19, 19)), -1, 'dessous du bureau : sol');
+  assert.equal(plan.classify(plan.index(13, 13)), 0, 'intérieur de la table : inconnu');
+  assert.equal(plan.classify(plan.index(4, 15)), 1, 'mur');
+  assert.equal(plan.classify(plan.index(1, 1)), 0, 'extérieur inchangé');
 });

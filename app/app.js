@@ -597,7 +597,7 @@ function render() {
     ctx.fillRect(0, 0, W(), H());
     ctx.imageSmoothingEnabled = false;
     if (showRef) {
-      const g = refmap.map.grid;
+      const g = refmap.map.plan ?? refmap.map.grid;
       refmap.cleanImage ??= cleanGridImage(g);
       ctx.globalAlpha = state.gridClean ? 0.55 : 1;
       ctx.drawImage(refmap.cleanImage, sx(g.originX), sy(g.originY + g.height * g.res), g.width * g.res * s, g.height * g.res * s);
@@ -621,7 +621,7 @@ function render() {
 
   if (showRef) {
     // carte de référence en fond : sol blanc, murs gris, segments gris foncé
-    const g = refmap.map.grid;
+    const g = refmap.map.plan ?? refmap.map.grid;
     refmap.image ??= referenceImage(g);
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(refmap.image, sx(g.originX), sy(g.originY + g.height * g.res), g.width * g.res * s, g.height * g.res * s);
@@ -749,6 +749,7 @@ function cleanGridImage(g) {
 function refreshClean() {
   state.gridCleanImage = null;
   state.gridClean = null;
+  state.gridLoc = null;
   state.vectorClean = null;
   state.corners = null;
   if (!state.grid) return;
@@ -777,7 +778,8 @@ function refreshClean() {
     barriers: high && state.vector ? cleanVectorMap(noAbsence(vis)).segments : [],
     labels: state.labels, // carte sémantique : seuls les meubles nommés restent des objets
   });
-  state.gridClean = c.grid;
+  state.gridClean = c.grid; // plan (affichage)
+  state.gridLoc = c.gridLoc; // grid map de localisation (figée avec la carte de référence)
   if (state.vector) {
     state.vectorClean = { segments: c.segments, dominant: c.dominant };
     state.corners = c.corners;
@@ -881,7 +883,8 @@ function freezeReference() {
   setReferenceMap(
     makeReferenceMap({
       name: `Carte figée (${vis.length} scans)`,
-      grid: clean ? state.gridClean : state.grid,
+      grid: clean ? state.gridLoc ?? state.gridClean : state.grid,
+      plan: clean ? state.gridClean : null,
       segments: clean ? state.vectorClean.segments : state.vector.segments,
       corners: clean ? state.corners ?? [] : [],
       scans: vis.map((e) => ({ name: e.name, pose: e.pose, elevated: e.scan.elevated })),

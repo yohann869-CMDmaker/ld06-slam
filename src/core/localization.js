@@ -22,6 +22,7 @@ import { DEG, normalizeAngleDeg } from './pose.js';
 import { DistanceField, exhaustive, icp, subsample, topCandidates } from './matching.js';
 import { length } from './geometry.js';
 import { gaussian, mulberry32 } from './sim.js';
+import { gaussNewton, ndt, plicp } from './advancedmatch.js';
 
 // ------------------------------------------------------------------ références
 
@@ -376,13 +377,17 @@ export const METHODS = Object.freeze({
   particles: { label: 'Filtre particulaire (probabiliste)', run: particles },
   icp: { label: 'ICP', run: icpMethod },
   direct: { label: 'Calcul direct (moindres carrés point-droite)', run: direct },
+  // ajoutées après l'état de l'art (advancedmatch.js, docs/etat_de_l_art.md)
+  plicp: { label: 'PL-ICP (ICP point-droite, Censi 2008)', run: (ref, pts, init, o) => plicp(ref, pts, init, o) },
+  ndt: { label: 'NDT (Biber 2003)', run: (ref, pts, init, o) => ndt(ref, pts, init, o) },
+  gaussnewton: { label: 'Gauss-Newton sur la carte (Hector 2011)', run: (ref, pts, init, o) => gaussNewton(ref, pts, init, o) },
 });
 
 /** Méthodes proposées pour chaque type de référence (le calcul direct a besoin de segments). */
 export const METHODS_BY_REFERENCE = Object.freeze({
-  grid: ['brute', 'multires', 'gradient', 'particles', 'icp'],
-  vector: ['direct', 'brute', 'multires', 'gradient', 'particles', 'icp'],
-  scan: ['icp', 'brute', 'multires', 'gradient', 'particles'],
+  grid: ['brute', 'multires', 'gradient', 'particles', 'icp', 'plicp', 'ndt', 'gaussnewton'],
+  vector: ['direct', 'brute', 'multires', 'gradient', 'particles', 'icp', 'plicp', 'ndt', 'gaussnewton'],
+  scan: ['icp', 'brute', 'multires', 'gradient', 'particles', 'plicp', 'ndt', 'gaussnewton'],
 });
 
 /**

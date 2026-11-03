@@ -1804,6 +1804,12 @@ $('gridIsolated').onclick = () => {
 };
 $('gridExport').onclick = () => state.grid && download('grid_map.csv', state.grid.toCSV(), 'text/csv');
 $('gridExportPng').onclick = () => state.grid && gridImage().toBlob((b) => download('grid_map.png', b));
+$('gridExportRos').onclick = () => {
+  if (!state.grid) return;
+  const { pgm, yaml } = state.grid.toROS('grid_map');
+  download('grid_map.pgm', new Blob([pgm], { type: 'image/x-portable-graymap' }));
+  setTimeout(() => download('grid_map.yaml', yaml, 'text/yaml'), 300);
+};
 $('gridImport').onchange = async (ev) => {
   const f = ev.target.files[0];
   ev.target.value = '';

@@ -22,7 +22,7 @@ scan (angle, distance)  ──► points du robot ──► points du monde ─�
 | Carte vectorielle | `src/core/vectormap.js` | `VectorMap.integrateScan` |
 | Cartes propres, objets fixes, meubles surélevés, coins | `src/core/cleanup.js` | `cleanMaps`, `cleanGrid`, `cleanVectorMap`, `classifySegments`, `markRaised`, `findCorners` |
 | Recalage des scans | `src/core/matching.js` | `DistanceField`, `matchScan`, `icp`, `autoAlign` |
-| Localisation (jour 2) | `src/core/localization.js` | `localize` et les six méthodes |
+| Localisation (jour 2) | `src/core/localization.js`, `advancedmatch.js` | `localize`, les six méthodes et les trois de l'état de l'art |
 | Localisation globale (jour 2) | `src/core/globalloc.js` | `globalLocalize`, `freePositions`, `candidateAngles` |
 
 ---
@@ -286,3 +286,23 @@ sert de prédiction au SLAM, et le mouvement mesuré par le SLAM corrige les vit
 (`updateSpeeds`, rapport borné à [0,5 ; 2] et lissé).
 
 Résultats : [jour3.md](jour3.md) et [jour3_explore.md](jour3_explore.md).
+
+### 16. Méthodes ajoutées après l'état de l'art (`src/core/advancedmatch.js`)
+
+Toutes linéarisent le déplacement d'un point du scan : pour w = R(θ)·p + (x, y), une petite
+correction (dx, dy, dθ) donne ∂w/∂x = (1, 0), ∂w/∂y = (0, 1), ∂w/∂θ = (−(wy − y), wx − x).
+
+- **PL-ICP** (Censi 2008) : normales des points de référence par ACP de leurs voisins à moins de
+  8 cm (points de coin écartés) ; résidu r = n · (w − q), ligne de jacobienne J = [nx, ny, n · ∂w/∂θ] ;
+  (Σ JᵀJ) d = −Σ Jᵀ r ; portes d'association 30, 15, 8 puis 4 cm.
+- **NDT** (Biber 2003) : cellules de 1 m, 50 cm, 25 cm, quatre grilles décalées d'une demi-cellule ;
+  moyenne μ et covariance Σ (régularisée) par cellule ; score f = −Σ exp(−½ qᵀΣ⁻¹q), q = w − μ ;
+  gradient et hessienne analytiques (dérivée seconde de w en θ : (−(wx − x), −(wy − y))) ; pas de
+  Levenberg-Marquardt (H + λ·diag(H)) d = −g, λ multiplié par 10 tant que le score ne baisse pas.
+- **Gauss-Newton sur la carte** (Hector 2011) : résidu r = D(w) lu dans le champ de distance
+  interpolé, ∇D par différences centrées ; points plus loin que la porte ignorés ; champs à 10, 5
+  puis 2,5 cm avec des portes de 50, 20 et 10 cm ; léger amortissement.
+
+**Export ROS** (`GridMap.toROS`) : image PGM P5 (libre 254, occupé 0, inconnu 205) et YAML
+(`resolution`, `origin` = coin bas-gauche, `occupied_thresh` 0,65, `free_thresh` 0,196, `negate` 0),
+la convention de `map_saver` ; la carte s'ouvre dans `map_server`, Nav2 ou RViz.

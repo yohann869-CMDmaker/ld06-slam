@@ -6,7 +6,7 @@ grid map, carte vectorielle, puis (jours 2 et 3) scan matching et SLAM.
 
 **Pour reprendre le projet : [docs/passation.md](docs/passation.md)** (ce qui est fait, ce qui reste).
 
-Comptes rendus : [jour 1](docs/jour1.md), [jour 2](docs/jour2.md) ([banc d'essai](docs/jour2_benchmark.md), [localisation globale](docs/jour2_global.md), [données réelles](docs/jour2_reel.md)), [journal des erreurs et corrections](docs/journal.md), [jour 3 : SLAM](docs/jour3.md) ([banc d'essai](docs/jour3_slam.md)), [exploration autonome](docs/jour3_explore.md), [algorithmes expliqués](docs/algorithmes.md).
+Comptes rendus : [jour 1](docs/jour1.md), [jour 2](docs/jour2.md) ([banc d'essai](docs/jour2_benchmark.md), [localisation globale](docs/jour2_global.md), [données réelles](docs/jour2_reel.md)), [journal des erreurs et corrections](docs/journal.md), [jour 3 : SLAM](docs/jour3.md) ([banc d'essai](docs/jour3_slam.md)), [exploration autonome](docs/jour3_explore.md), [algorithmes expliqués](docs/algorithmes.md), [état de l'art](docs/etat_de_l_art.md).
 
 ## Prérequis
 
@@ -27,8 +27,8 @@ chargent pas depuis `file://`).
 2. Sélectionner un scan pour modifier sa pose : champs x, y, θ ; glisser le scan ;
    Maj + glisser pour le tourner ; flèches et Q/A, E au clavier.
 3. **Grid map** : créer depuis le scan sélectionné, mettre à jour la carte avec le scan
-   sélectionné, ou construire avec tous les scans visibles. Export CSV/PNG, import CSV
-   (y compris les grilles MapTool).
+   sélectionné, ou construire avec tous les scans visibles. Export CSV/PNG, **export ROS**
+   (PGM + YAML, pour `map_server` / Nav2 / RViz), import CSV (y compris les grilles MapTool).
 4. **Carte vectorielle** : mêmes actions ; export/import TXT (`x1,y1,x2,y2`), carte de
    référence en pointillés (par ex. `data/sim/scene_A.txt` ou une scène MapTool).
 
@@ -127,7 +127,7 @@ Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
 node scripts/build-maps.mjs --out out/sim data/sim/scan_01.csv data/sim/scan_02.csv
 ```
 
-Construit `grid_map.csv`, `grid_map.png`, `vector_map.txt` et `apercu.png` à partir des scans
+Construit `grid_map.csv`, `grid_map.png`, `grid_map.pgm` + `grid_map.yaml` (format ROS), `vector_map.txt` et `apercu.png` à partir des scans
 (pose lue dans chaque fichier). Options : `--res 0.05`, `--grid carte.csv` et
 `--vector carte.txt` pour mettre à jour des cartes existantes, `--ref scene.txt`,
 `--no-absence`, `--min-intensity N`.
@@ -176,7 +176,8 @@ node --test "test/*.test.js"
 | `vectormap.js` | Carte vectorielle (fusion, gestion des absences) |
 | `matching.js` | Champ de distance, ICP, recalage automatique des scans |
 | `cleanup.js` | Cartes propres (grid map nettoyée, murs redressés, coins) |
-| `localization.js` | Localisation d'un scan sur une référence (6 méthodes) |
+| `localization.js` | Localisation d'un scan sur une référence (9 méthodes) |
+| `advancedmatch.js` | Méthodes de l'état de l'art : PL-ICP (Censi 2008), NDT (Biber 2003), Gauss-Newton sur la carte (Hector 2011) |
 | `globalloc.js` | Localisation globale : pose retrouvée dans toute la salle, avec indice de confiance |
 | `slam.js` | SLAM : suivi sur carte locale, relocalisation, scans clés, fermeture de boucle |
 | `explore.js` | Exploration autonome : frontières, chemin, commandes du robot, étalonnage des vitesses |

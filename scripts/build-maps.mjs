@@ -9,7 +9,7 @@
 //   --ref fichier.txt   carte de référence dessinée en pointillés sur l'aperçu
 //   --no-absence        désactive la découpe des segments traversés
 //   --min-intensity N   filtre des points de faible intensité
-// Sorties : grid_map.csv, grid_map.png, vector_map.txt, apercu.png
+// Sorties : grid_map.csv, grid_map.png, grid_map.pgm + grid_map.yaml (ROS), vector_map.txt, apercu.png
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { parseScanCSV, scanToWorldXY, DEFAULT_FILTER } from '../src/core/scan.js';
@@ -63,6 +63,9 @@ for (const s of scans) {
 
 await mkdir(opt.out, { recursive: true });
 await writeFile(join(opt.out, 'grid_map.csv'), grid.toCSV());
+const ros = grid.toROS('grid_map');
+await writeFile(join(opt.out, 'grid_map.pgm'), ros.pgm);
+await writeFile(join(opt.out, 'grid_map.yaml'), ros.yaml);
 await writeFile(join(opt.out, 'vector_map.txt'), vector.toTXT());
 
 const gb = { minX: grid.originX, minY: grid.originY, maxX: grid.originX + grid.width * grid.res, maxY: grid.originY + grid.height * grid.res };
@@ -86,4 +89,4 @@ await writeFile(join(opt.out, 'apercu.png'), view.png());
 const st = grid.stats();
 console.log(`\nGrid map : ${grid.width} x ${grid.height} cellules de ${grid.res} m, ${st.occupied} occupées, ${st.free} libres, ${st.unknown} inconnues`);
 console.log(`Carte vectorielle : ${vector.segments.length} segments`);
-console.log(`Fichiers écrits dans ${opt.out}/ : grid_map.csv, grid_map.png, vector_map.txt, apercu.png`);
+console.log(`Fichiers écrits dans ${opt.out}/ : grid_map.csv, grid_map.png, grid_map.pgm, grid_map.yaml, vector_map.txt, apercu.png`);

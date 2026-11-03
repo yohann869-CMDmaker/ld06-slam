@@ -357,6 +357,37 @@ export class GridMap {
   }
 
   /**
+   * Export au format ROS (map_server / Nav2 / RViz) : image PGM binaire (P5) + fichier YAML.
+   * Convention de map_saver : libre = 254, occupé = 0, inconnu = 205 ; avec negate = 0, ROS lit
+   * p = (255 − pixel) / 255 : 0 → 1 (occupé ≥ 0,65), 254 → 0,004 (libre ≤ 0,196), 205 → 0,196
+   * (entre les seuils : inconnu). Première ligne de l'image = haut de la carte (Y max) ; origin =
+   * coin bas-gauche de la carte (m, m, rad). Retourne { pgm: Uint8Array, yaml: string }.
+   */
+  toROS(name = 'map') {
+    const header = new TextEncoder().encode(`P5\n# ld06-slam\n${this.width} ${this.height}\n255\n`);
+    const pgm = new Uint8Array(header.length + this.width * this.height);
+    pgm.set(header);
+    let o = header.length;
+    for (let j = this.height - 1; j >= 0; j--) {
+      for (let i = 0; i < this.width; i++) {
+        const c = this.classify(this.index(i, j));
+        pgm[o++] = c === 1 ? 0 : c === -1 ? 254 : 205;
+      }
+    }
+    const yaml = [
+      `image: ${name}.pgm`,
+      'mode: trinary',
+      `resolution: ${this.res}`,
+      `origin: [${this.originX.toFixed(4)}, ${this.originY.toFixed(4)}, 0.0]`,
+      'negate: 0',
+      'occupied_thresh: 0.65',
+      'free_thresh: 0.196',
+      '',
+    ].join('\n');
+    return { pgm, yaml };
+  }
+
+  /**
    * Import d'une grille exportée par toCSV(), ou par MapTool
    * ("# Grid map NxM, cell=0.1 m ; 1=occupied,0=free", origine en (0, 0)).
    */

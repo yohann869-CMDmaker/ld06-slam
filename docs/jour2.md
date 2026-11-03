@@ -392,3 +392,41 @@ fichier, part des points sur la carte, temps, confiance de la localisation globa
   mesure pas (table sur roulettes : étiquette ajoutée à la main).
 - **Suite (jour 3)** : lever les ambiguïtés en suivant le robot dans le temps (odométrie + filtre),
   construire la carte en même temps qu'on se localise (SLAM) et fermer les boucles.
+
+## Ajout : trois méthodes de l'état de l'art (4 novembre)
+
+Après l'état de l'art ([etat_de_l_art.md](etat_de_l_art.md)), trois méthodes publiées ont été
+ajoutées (`src/core/advancedmatch.js`) et passées dans les **mêmes bancs d'essai** que les six
+premières :
+
+- **PL-ICP** (Censi, ICRA 2008) : ICP où l'erreur est la distance du point à la *droite* locale
+  de la référence (normale estimée par ACP des voisins), système 3 × 3 résolu à chaque itération ;
+- **NDT** (Biber & Straßer, IROS 2003) : une gaussienne par cellule (1 m, 50 cm puis 25 cm, quatre
+  grilles décalées), méthode de Newton avec gradient et hessienne analytiques ; il a fallu un
+  amortissement de **Levenberg-Marquardt** : loin du minimum la hessienne n'est pas définie
+  positive et le pas de Newton remontait (voir le journal) ;
+- **Gauss-Newton sur la carte** (à la manière de Hector SLAM, Kohlbrecher et al., 2011) : résidu =
+  distance lue dans le champ de distance interpolé, pente par différences centrées, du grossier
+  (10 cm) au fin (2,5 cm).
+
+| Méthode | Simulation : réussite (grid / vecteurs / scan) | Simulation, écart 45 cm / 18° | Réel, scans de la carte (grid / vecteurs / scan) | Temps |
+| --- | --- | --- | --- | --- |
+| Multi-résolution (rappel) | 100 / 100 / 100 % | 100 / 100 / 100 % | 87 / 75 / 88 % | ~100 ms |
+| ICP (rappel) | 89 / 92 / 96 % | 56 / 67 / 83 % | 59 / 59 / 56 % | 5-9 ms |
+| **PL-ICP** | 74 / 94 / 93 % | 50 / 78 / 72 % | 63 / 72 / 58 % | 3-4 ms |
+| **NDT** | 92 / 83 / 89 % | 72 / 56 / 72 % | 66 / 51 / 44 % | 10-13 ms |
+| **Gauss-Newton (Hector)** | **100 / 100 / 100 %** | **100 / 100 / 100 %** | 67 / 69 / 70 % | **1-2 ms** |
+
+(Détail complet : [jour2_benchmark.md](jour2_benchmark.md) et [jour2_reel.md](jour2_reel.md).)
+
+- **Gauss-Newton (Hector)** : la meilleure trouvaille. En simulation il réussit partout, même à
+  45 cm / 18° d'écart, en 1 à 2 ms, 50 à 100 fois plus vite que la multi-résolution ; sur les scans
+  réels il reste correct (67 à 70 %) mais moins robuste que la multi-résolution. → utilisé dans le
+  SLAM comme **suivi rapide** (jour 3).
+- **PL-ICP** : le plus précis sur la carte vectorielle (1,1 mm, moins d'itérations que l'ICP), comme
+  l'annonce Censi ; faible sur la grid map, dont les points (centres de cellules tous les 5 cm)
+  donnent des normales bruitées ; et, comme l'annonce aussi Censi, moins robuste aux grands écarts.
+- **NDT** : bon en simulation, le plus faible sur les données réelles : les cellules mélangent murs
+  et meubles, et les gaussiennes décrivent mal les coins et les petits objets vus d'un seul côté.
+- **Conclusion inchangée sur le fond** : une recherche (multi-résolution) puis un affinage rapide ;
+  le Gauss-Newton devient le meilleur affinage quand la pose de départ est raisonnable.

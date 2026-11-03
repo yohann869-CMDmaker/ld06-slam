@@ -5,6 +5,57 @@ Objectif (énoncé et présentation du module) : aligner un scan lidar sur une r
 Code : `src/core/localization.js` (méthodes), `src/core/matching.js` (champ de distance, ICP),
 application : panneau **Localisation (jour 2)**, banc d'essai : `scripts/benchmark-jour2.mjs`.
 
+## Carte de référence figée
+
+Pour localiser un scan, il faut une carte qui ne bouge plus. Les cartes « des scans visibles »
+de l'application sont reconstruites à chaque changement de pose ; la **carte de référence** est
+au contraire figée une fois pour toutes et enregistrée dans un fichier. Les nouveaux scans
+(pris au hasard dans la salle) sont ensuite localisés sur elle, sans la modifier.
+
+Contenu du fichier `data/reference/carte_reference.json` (module `src/core/refmap.js`) :
+
+| Partie | Contenu |
+| --- | --- |
+| Grid map | Valeurs 0..255 par cellule (0 libre, 128 inconnu, 255 occupé), compressées par plages de valeurs identiques : 85 000 cellules tiennent en 10 ko |
+| Carte vectorielle | Segments `[x1, y1, x2, y2]` en mètres, et coins `[x, y, θ]` |
+| Traçabilité | Nom, date, version propre ou brute, scans ayant servi et leurs poses recalées |
+
+Construction de la carte de la salle :
+
+```bash
+node scripts/build-reference.mjs
+```
+
+Le script relit les 7 scans réels de `data/real/` avec leurs poses manuelles, les recale
+automatiquement (multi-résolution + ICP, chaque scan face à tous les autres), construit la grid
+map et la carte vectorielle, garde leur version propre et écrit la carte, les poses recalées
+(`data/reference/poses_recalees.csv`) et un aperçu.
+
+| Mesure | Valeur |
+| --- | --- |
+| Points cohérents entre scans | 45 % (poses manuelles) → 60 % (poses recalées) |
+| Grid map | 279 × 304 cellules de 5 cm |
+| Carte vectorielle | 31 segments, 9 coins |
+| Emprise | 12,6 m × 13,9 m |
+
+![Carte de référence de la salle](img/j2_carte_reference.png)
+
+*Sol blanc, murs gris (grid map propre), segments noirs, coins orange, poses des 7 scans en bleu.*
+
+Dans l'application, section **Carte de référence (jour 2)** :
+
+- **Charger la carte de la salle** : relit `data/reference/carte_reference.json` ;
+- **Charger…** : une autre carte de référence enregistrée ;
+- **Figer les cartes actuelles** : les cartes des scans visibles (version propre ou brute)
+  deviennent la référence ; **Enregistrer…** la télécharge ;
+- la carte s'affiche en fond (sol blanc, murs gris) et le panneau Localisation propose les
+  références « Carte de référence : vectorielle » et « Carte de référence : grid map ».
+
+Vérification : scan `scan_1102_180105` placé à 25 cm, 15 cm et 8° de sa pose recalée, puis
+localisé par calcul direct sur la carte vectorielle de référence : arrivée à 0,6 cm et 0,25° de
+la pose recalée, en 18 ms. Seuls 42 % des points du scan tombent à moins de 5 cm d'un segment :
+la carte propre ne garde que les murs, les pieds de tables et de chaises n'y sont pas.
+
 ## Références
 
 | Référence | Représentation utilisée | Construction dans l'application |
@@ -12,6 +63,7 @@ application : panneau **Localisation (jour 2)**, banc d'essai : `scripts/benchma
 | Grid map | Centres des cellules occupées | Avec les scans visibles autres que le scan à localiser |
 | Carte vectorielle | Segments (échantillonnés tous les 2 cm pour les méthodes à base de points) | Idem, ou carte importée (`Référence…`, par ex. une scène MapTool) |
 | Scan de référence | Points du scan précédent dans la liste | Scan pris près de la position du scan à localiser |
+| Carte de référence | Grid map ou segments de la carte figée | Chargée depuis un fichier, ne change plus |
 
 Pour chaque référence, un **champ de distance** (distance de chaque cellule au point de
 référence le plus proche, transformée de chanfrein en deux passes) donne le score d'une pose :

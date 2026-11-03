@@ -86,6 +86,16 @@ Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
   fichiers pour MapTool (`maptool_carte_vectorielle.txt`, `maptool_grid_map.csv`). Pour les
   ouvrir dans MapTool, régler la largeur et la hauteur indiquées en tête du fichier, puis importer.
 
+## Carte de référence et localisation (jour 2)
+
+- **Charger la carte de la salle** (section Carte de référence) : la salle construite au jour 1
+  (`data/reference/carte_reference.json`, régénérée par `node scripts/build-reference.mjs`)
+  s'affiche en fond et sert de référence.
+- **Figer les cartes actuelles** puis **Enregistrer…** : faire de la carte des scans visibles la
+  nouvelle référence.
+- Ouvrir un scan, le placer à peu près à la main, puis **Localiser le scan sélectionné** (référence
+  « Carte de référence : vectorielle » ou « grid map ») ou **Comparer les méthodes**.
+
 ## Ligne de commande
 
 ```bash
@@ -103,6 +113,8 @@ Autres scripts :
 | --- | --- |
 | `node scripts/gen-sim.mjs` | Régénère le jeu simulé (`data/sim/`) |
 | `node scripts/figures-jour1.mjs` | Figures du compte rendu (`docs/img/`) et mesures de précision |
+| `node scripts/benchmark-jour2.mjs` | Banc d'essai de la localisation (`docs/jour2_benchmark.md`) |
+| `node scripts/build-reference.mjs` | Carte de référence de la salle à partir de `data/real/` (`data/reference/`) |
 
 ## Tests
 
@@ -130,3 +142,7 @@ node --test "test/*.test.js"
 | `geometry.js` | Segments : angle, proximité, fusion, intersection, découpage |
 | `segmentation.js` | Nuage de points → segments (clusters, split-and-merge) |
 | `vectormap.js` | Carte vectorielle (fusion, gestion des absences) |
+| `matching.js` | Champ de distance, ICP, recalage automatique des scans |
+| `cleanup.js` | Cartes propres (grid map nettoyée, murs redressés, coins) |
+| `localization.js` | Localisation d'un scan sur une référence (6 méthodes) |
+| `refmap.js` | Carte de référence figée : enregistrement et relecture (JSON) |

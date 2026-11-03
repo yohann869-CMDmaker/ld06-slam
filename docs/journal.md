@@ -69,6 +69,14 @@ Choix : JavaScript (modules ES) sans dépendance, même code pour l'application 
 | Fichiers MapTool inutilisables tels quels | MapTool n'accepte pas de coordonnées négatives | Coordonnées décalées en positif, dimensions indiquées en en-tête |
 | Test du nettoyage vectoriel qui échoue | Le test supposait des murs à 0° alors que la direction dominante calculée était 0,44° | Test corrigé (comparaison à la direction dominante) |
 
+### Étape 2 du jour 2 : carte de référence figée
+
+| Problème | Cause | Correction |
+| --- | --- | --- |
+| Pas de carte fixe pour localiser les nouveaux scans | Les cartes « des scans visibles » sont reconstruites à chaque changement de pose | Carte de référence figée, enregistrée en JSON (`refmap.js`) et rechargée dans l'application |
+| Fichier de carte lourd (85 000 cellules) | Une valeur par cellule | Compression par plages de valeurs identiques : 10 ko |
+| Peu de points du scan « sur la carte » (42 %) alors que la pose est juste | La carte propre ne garde que les murs : pieds de meubles absents | Normal ; le score ne sert qu'à comparer les poses entre elles, la précision est vérifiée à part (0,6 cm, 0,25°) |
+
 Ajouts après lecture des documents du cours : localisation sur trois références et six
 méthodes (dont le calcul direct inspiré de l'article « Mars Attacks! »), coins, oubli des
 segments rarement vus, banc d'essai chiffré du jour 2.

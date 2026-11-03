@@ -114,12 +114,31 @@
     </section>
 
     <section>
+      <h2>Carte de référence (jour 2)</h2>
+      <p class="stat" id="refStat">Aucune carte de référence.</p>
+      <div class="row">
+        <button id="btnRefProject" class="primary-btn" title="data/reference/carte_reference.json : la salle construite au jour 1">Charger la carte de la salle</button>
+        <label class="btn">Charger…<input type="file" id="refLoad" accept=".json" hidden></label>
+      </div>
+      <div class="row">
+        <button id="btnRefFreeze" title="Les cartes actuelles (scans visibles) deviennent la référence">Figer les cartes actuelles</button>
+        <button id="btnRefSave">Enregistrer…</button>
+      </div>
+      <label class="check"><input type="checkbox" id="refClean" checked> Figer la version propre</label>
+      <label class="check"><input type="checkbox" id="showRefMap" checked> Afficher la carte de référence en fond</label>
+      <p class="hint">La carte de référence ne change plus : on y localise les nouveaux scans
+        (Localisation, référence « Carte de référence »).</p>
+    </section>
+
+    <section>
       <h2>Localisation (jour 2)</h2>
       <label class="inline">Référence
         <select id="locRef">
-          <option value="grid">Grid map</option>
-          <option value="vector" selected>Carte vectorielle</option>
-          <option value="imported">Carte de référence importée</option>
+          <option value="refvector">Carte de référence : vectorielle</option>
+          <option value="refgrid">Carte de référence : grid map</option>
+          <option value="grid">Grid map des scans visibles</option>
+          <option value="vector" selected>Carte vectorielle des scans visibles</option>
+          <option value="imported">Carte importée (Référence…)</option>
           <option value="scan">Scan de référence (le précédent)</option>
         </select>
       </label>

@@ -8,6 +8,7 @@ import { autoAlign, consistency, matchScan } from '../src/core/matching.js';
 import { cleanGrid, cleanVectorMap, findCorners, segmentsNearFloor } from '../src/core/cleanup.js';
 import { gridReference, localize, METHODS, METHODS_BY_REFERENCE, scanReference, vectorReference } from '../src/core/localization.js';
 import { dayOneExports, MAPTOOL, maptoolColor } from './figures.js';
+import { makeReferenceMap, parseReferenceMap, referenceBounds, serializeReferenceMap } from '../src/core/refmap.js';
 import { extractSegments } from '../src/core/segmentation.js';
 import { transformSegment } from '../src/core/geometry.js';
 
@@ -498,6 +499,10 @@ function fitView() {
   const ys = [];
   const pointSets = state.scans.filter((s) => s.visible).map(worldPoints);
   if (!pointSets.length && live.scan) pointSets.push(livePoints());
+  if (!pointSets.length && refmap.map) {
+    const b = referenceBounds(refmap.map);
+    pointSets.push([{ x: b.minX, y: b.minY }, { x: b.maxX, y: b.maxY }]);
+  }
   for (const pts of pointSets) {
     for (const p of pts) {
       xs.push(p.x);
@@ -534,16 +539,32 @@ function render() {
   ctx.fillRect(0, 0, W(), H());
   const s = state.view.scale;
 
+  const showRef = $('showRefMap').checked && refmap.map;
   // Vue propre (style MapTool) : fond ardoise, sol blanc, murs noirs, segments rouges.
-  const clean = $('showClean').checked && state.gridClean;
+  const clean = $('showClean').checked && (state.gridClean || showRef);
   if (clean) {
     ctx.fillStyle = MAPTOOL.background;
     ctx.fillRect(0, 0, W(), H());
-    const g = state.gridClean;
-    state.gridCleanImage ??= cleanGridImage(g);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(state.gridCleanImage, sx(g.originX), sy(g.originY + g.height * g.res), g.width * g.res * s, g.height * g.res * s);
+    if (showRef) {
+      const g = refmap.map.grid;
+      refmap.cleanImage ??= cleanGridImage(g);
+      ctx.globalAlpha = state.gridClean ? 0.55 : 1;
+      ctx.drawImage(refmap.cleanImage, sx(g.originX), sy(g.originY + g.height * g.res), g.width * g.res * s, g.height * g.res * s);
+      ctx.globalAlpha = 1;
+    }
+    if (state.gridClean) {
+      const g = state.gridClean;
+      state.gridCleanImage ??= cleanGridImage(g);
+      ctx.drawImage(state.gridCleanImage, sx(g.originX), sy(g.originY + g.height * g.res), g.width * g.res * s, g.height * g.res * s);
+    }
     if ($('showMetric').checked) drawMetricGrid();
+    if (showRef && !state.vectorClean) {
+      ctx.strokeStyle = MAPTOOL.segment;
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      strokeSegments(refmap.map.segments);
+    }
     if (state.vectorClean) {
       ctx.strokeStyle = MAPTOOL.segment;
       ctx.lineWidth = 3;
@@ -557,10 +578,22 @@ function render() {
     return;
   }
 
+  if (showRef) {
+    // carte de référence en fond : sol blanc, murs gris, segments gris foncé
+    const g = refmap.map.grid;
+    refmap.image ??= referenceImage(g);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(refmap.image, sx(g.originX), sy(g.originY + g.height * g.res), g.width * g.res * s, g.height * g.res * s);
+    ctx.strokeStyle = '#495057';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    strokeSegments(refmap.map.segments);
+  }
+
   if ($('showGrid').checked && state.grid) {
     const g = state.grid;
     ctx.imageSmoothingEnabled = false;
-    ctx.globalAlpha = 0.9;
+    ctx.globalAlpha = showRef ? 0.6 : 0.9;
     ctx.drawImage(gridImage(), sx(g.originX), sy(g.originY + g.height * g.res), g.width * g.res * s, g.height * g.res * s);
     ctx.globalAlpha = 1;
   }
@@ -690,11 +723,90 @@ function drawCorners() {
   }
 }
 
+// ------------------------------------------------------------------ carte de référence (jour 2)
+// La carte de la salle construite au jour 1, figée : on y localise les nouveaux scans.
+
+const refmap = { map: null, image: null, cleanImage: null, gridRef: null, vectorRef: null };
+
+function setReferenceMap(map) {
+  Object.assign(refmap, { map, image: null, cleanImage: null, gridRef: null, vectorRef: null });
+  const d = new Date(map.date);
+  const when = `${d.toLocaleDateString('fr-FR')} ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+  $('refStat').textContent = `${map.name} · ${map.segments.length} segments, ${map.corners.length} coins, grid ${map.grid.width} × ${map.grid.height} (${Math.round(map.grid.res * 100)} cm) · ${map.clean ? 'version propre' : 'version brute'} · ${when}`;
+  $('showRefMap').checked = true;
+  $('locRef').value = 'refvector';
+  fillMethods();
+  if (!state.scans.length) fitView();
+  draw();
+}
+
+/** Image de la carte de référence pour la vue normale : sol blanc, occupé gris, inconnu transparent. */
+function referenceImage(g) {
+  const off = document.createElement('canvas');
+  off.width = g.width;
+  off.height = g.height;
+  const octx = off.getContext('2d');
+  const img = octx.createImageData(g.width, g.height);
+  for (let j = 0; j < g.height; j++) {
+    for (let i = 0; i < g.width; i++) {
+      const c = g.classify(g.index(i, j));
+      if (c === 0) continue;
+      const o = 4 * ((g.height - 1 - j) * g.width + i);
+      img.data.set(c === -1 ? [255, 255, 255, 255] : [134, 142, 150, 255], o);
+    }
+  }
+  octx.putImageData(img, 0, 0);
+  return off;
+}
+
+async function loadProjectReference() {
+  try {
+    const res = await fetch('../data/reference/carte_reference.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error('fichier data/reference/carte_reference.json introuvable (node scripts/build-reference.mjs)');
+    setReferenceMap(parseReferenceMap(await res.text()));
+    toast('Carte de la salle chargée comme référence');
+  } catch (err) {
+    toast(`Chargement impossible : ${err.message}`);
+  }
+}
+
+/** Les cartes actuelles (scans visibles) deviennent la référence, en version propre ou brute. */
+function freezeReference() {
+  const vis = state.scans.filter((e) => e.visible);
+  if (!vis.length) return toast('Aucun scan visible pour construire la carte');
+  if (!state.grid) buildGridAll(true);
+  if (!state.vector) buildVectorAll(true);
+  refreshClean();
+  const clean = $('refClean').checked;
+  setReferenceMap(
+    makeReferenceMap({
+      name: `Carte figée (${vis.length} scans)`,
+      grid: clean ? state.gridClean : state.grid,
+      segments: clean ? state.vectorClean.segments : state.vector.segments,
+      corners: clean ? state.corners ?? [] : [],
+      scans: vis.map((e) => ({ name: e.name, pose: e.pose })),
+      clean,
+    }),
+  );
+  toast('Cartes figées comme référence : pense à « Enregistrer… »');
+}
+
+function saveReference() {
+  if (!refmap.map) return toast('Aucune carte de référence à enregistrer');
+  download('carte_reference.json', serializeReferenceMap(refmap.map), 'application/json');
+}
+
 // ------------------------------------------------------------------ localisation (jour 2)
+
+/** Type de référence (grid, vector, scan) correspondant au choix de la liste. */
+function locKind() {
+  const v = $('locRef').value;
+  return { imported: 'vector', refvector: 'vector', refgrid: 'grid' }[v] ?? v;
+}
 
 /** Méthodes proposées selon la référence choisie. */
 function fillMethods() {
-  const kind = $('locRef').value === 'imported' ? 'vector' : $('locRef').value;
+  const kind = locKind();
   const sel = $('locMethod');
   const prev = sel.value;
   sel.replaceChildren(...METHODS_BY_REFERENCE[kind].map((m) => new Option(METHODS[m].label, m)));
@@ -707,6 +819,11 @@ function fillMethods() {
  */
 function locReference(target) {
   const kind = $('locRef').value;
+  if (kind === 'refgrid' || kind === 'refvector') {
+    if (!refmap.map) throw new Error('Aucune carte de référence : « Charger la carte de la salle » ou « Figer les cartes actuelles »');
+    if (kind === 'refgrid') return (refmap.gridRef ??= gridReference(refmap.map.grid));
+    return (refmap.vectorRef ??= vectorReference(refmap.map.segments));
+  }
   if (kind === 'imported') {
     if (!state.reference) throw new Error('Aucune carte importée : bouton « Référence… » de la carte vectorielle');
     return vectorReference(state.reference.segments);
@@ -773,7 +890,7 @@ async function runCompare() {
   } catch (err) {
     return toast(err.message);
   }
-  const kind = $('locRef').value === 'imported' ? 'vector' : $('locRef').value;
+  const kind = locKind();
   const init = { ...e.pose };
   const results = [];
   for (const m of METHODS_BY_REFERENCE[kind]) {
@@ -1014,6 +1131,21 @@ $('btnSim').onclick = loadSimulated;
 $('liveAdd').onclick = liveCapture;
 $('btnAlign').onclick = runAutoAlign;
 $('btnExportDay1').onclick = exportDayOne;
+$('btnRefProject').onclick = loadProjectReference;
+$('btnRefFreeze').onclick = freezeReference;
+$('btnRefSave').onclick = saveReference;
+$('refLoad').onchange = async (ev) => {
+  const f = ev.target.files[0];
+  ev.target.value = '';
+  if (!f) return;
+  try {
+    setReferenceMap(parseReferenceMap(await readFile(f)));
+    toast(`Carte de référence chargée : ${f.name}`);
+  } catch (err) {
+    toast(err.message);
+  }
+};
+$('showRefMap').addEventListener('change', draw);
 $('locRef').onchange = fillMethods;
 $('btnLocalize').onclick = runLocalize;
 $('btnCompare').onclick = runCompare;

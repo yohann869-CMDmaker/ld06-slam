@@ -180,6 +180,37 @@ export function validPoints(scan, filter = DEFAULT_FILTER) {
 }
 
 /**
+ * Un seul tour du lidar. Certains fichiers (export LidarScope, RobotControl) enchaînent
+ * plusieurs rotations : les points d'un même angle s'y retrouvent deux ou trois fois et les
+ * tours se superposent mal dès que quelque chose bouge. On garde la plus longue suite de
+ * points, dans l'ordre d'acquisition, qui tient dans 360° de rotation : un tour complet, sans
+ * doublon d'angle. Si des trames ont été perdues dans un tour, un autre tour plus complet gagne.
+ */
+export function singleTour(scan) {
+  const pts = scan.points;
+  if (pts.length < 2) return scan;
+  // écart d'angle entre deux points consécutifs, ramené dans [-180, 180[
+  const steps = [];
+  for (let k = 1; k < pts.length; k++) steps.push(((pts[k].angle - pts[k - 1].angle + 540) % 360) - 180);
+  const dir = Math.sign(steps.reduce((s, d) => s + d, 0)) || 1; // sens de rotation dans le fichier
+  // rotation cumulée depuis le premier point (un retour en arrière ne compte pas)
+  const turn = [0];
+  for (const d of steps) turn.push(turn.at(-1) + Math.max(0, dir * d));
+  let best = [0, pts.length];
+  let bestLen = -1;
+  for (let i = 0, j = 0; i < pts.length; i++) {
+    while (j < pts.length && turn[j] - turn[i] < 360) j++;
+    if (j - i > bestLen) {
+      best = [i, j];
+      bestLen = j - i;
+    }
+    if (j === pts.length) break;
+  }
+  if (bestLen === pts.length) return scan;
+  return { ...scan, points: pts.slice(best[0], best[1]), tours: turn.at(-1) / 360 };
+}
+
+/**
  * Coordonnées cartésiennes dans le repère du robot, triées par angle croissant.
  * options.flipAngles : à activer pour des angles bruts du capteur (sens horaire).
  */

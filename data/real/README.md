@@ -10,6 +10,12 @@ Trois façons d'acquérir les scans (détails dans le README principal) :
 - **USB à la demande** : programme `firmware/ESP32_LD06_Capture` et bouton
   **Capturer un scan** de l'application.
 - **Wi-Fi** : RobotControl, bouton `Export CSV`.
+- **Export LidarScope** (scans du 3 novembre, `scan_1103_ls*.csv`) : export brut gardé dans
+  `lidarscope_20261103/`, importé avec `node scripts/import-lidarscope.mjs` (un seul tour par
+  scan, poses ramenées dans notre repère grâce au scan commun `scan_1102_175527`).
+
+Après avoir ajouté des scans : `node scripts/build-reference.mjs` recale l'ensemble et
+régénère la carte de référence (`data/reference/`).
 
 Format des fichiers (identique à l'export RobotControl) :
 

@@ -77,6 +77,16 @@ Choix : JavaScript (modules ES) sans dépendance, même code pour l'application 
 | Fichier de carte lourd (85 000 cellules) | Une valeur par cellule | Compression par plages de valeurs identiques : 10 ko |
 | Peu de points du scan « sur la carte » (42 %) alors que la pose est juste | La carte propre ne garde que les murs : pieds de meubles absents | Normal ; le score ne sert qu'à comparer les poses entre elles, la précision est vérifiée à part (0,6 cm, 0,25°) |
 
+### Scans ajoutés pour améliorer la carte (export LidarScope)
+
+| Problème | Cause | Correction |
+| --- | --- | --- |
+| 6 fichiers sur 11 avec 2 à 3 tours (jusqu'à 870 points) | L'export LidarScope enchaîne plusieurs rotations | `singleTour` : un seul tour complet par scan (règle : un tour, sinon les scans sont biaisés) |
+| Poses des nouveaux scans dans un autre repère (tourné de −89°) | LidarScope a son propre repère | Scan commun `scan_1102_175527` réimporté dans LidarScope : ancre du changement de repère (`import-lidarscope.mjs`) |
+| Deux scans de l'ancienne carte décalés d'environ 50 cm | Recalage automatique avec peu de recouvrement : murs longs parallèles, translation mal contrainte | Recalage commun des 18 scans en partant des poses manuelles : 82 % de points cohérents, rectangle central refermé |
+| Recalage commun qui semblait prendre plus de 10 min | Script de préparation lancé avec une entrée standard redirigée deux fois (bloqué en attente) | Script écrit dans un fichier puis lancé : le recalage de 18 scans prend 2 s |
+| Calcul direct moins bon sur la nouvelle carte (10/18) | Méthode locale (marge 25 cm), plus de segments voisins où se tromper | Multi-résolution par défaut avec la carte de référence (17/18) |
+
 Ajouts après lecture des documents du cours : localisation sur trois références et six
 méthodes (dont le calcul direct inspiré de l'article « Mars Attacks! »), coins, oubli des
 segments rarement vus, banc d'essai chiffré du jour 2.

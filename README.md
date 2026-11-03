@@ -115,6 +115,7 @@ Autres scripts :
 | `node scripts/figures-jour1.mjs` | Figures du compte rendu (`docs/img/`) et mesures de précision |
 | `node scripts/benchmark-jour2.mjs` | Banc d'essai de la localisation (`docs/jour2_benchmark.md`) |
 | `node scripts/build-reference.mjs` | Carte de référence de la salle à partir de `data/real/` (`data/reference/`) |
+| `node scripts/import-lidarscope.mjs <export>` | Importe un export LidarScope dans `data/real/` (un seul tour par scan, changement de repère) |
 
 ## Tests
 

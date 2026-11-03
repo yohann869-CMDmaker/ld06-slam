@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseScanCSV, parseTeleplot, scanToLocalXY, scanToWorldXY, serializeScanCSV, validPoints } from '../src/core/scan.js';
+import { parseScanCSV, parseTeleplot, scanToLocalXY, scanToWorldXY, serializeScanCSV, singleTour, validPoints } from '../src/core/scan.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);
 
@@ -159,4 +159,32 @@ test('serializeScanCSV puis parseScanCSV redonne le même scan', () => {
   const back = parseScanCSV(serializeScanCSV(s, { x: -1, y: 0.5, theta: 10 }));
   assert.deepEqual(back.pose, { x: -1, y: 0.5, theta: 10 });
   assert.deepEqual(back.points, s.points);
+});
+
+// Fichier de 2,5 tours (300 points par tour, angles décroissants comme sur le LD06).
+const turns = (n, step = 1.2, start = 359) => ({
+  name: 't',
+  pose: { x: 0, y: 0, theta: 0 },
+  points: Array.from({ length: n }, (_, k) => ({ angle: (((start - step * k) % 360) + 360) % 360, r: 1, intensity: 200 })),
+});
+
+test('un seul tour : 2,5 tours ramenés à 300 points sans doublon', () => {
+  const s = singleTour(turns(750));
+  assert.equal(s.points.length, 300);
+  close(s.tours, 749 * 1.2 / 360);
+  const angles = new Set(s.points.map((p) => p.angle.toFixed(2)));
+  assert.equal(angles.size, 300);
+});
+
+test('un seul tour : scan déjà sur un tour inchangé', () => {
+  const one = turns(299);
+  assert.equal(singleTour(one), one);
+});
+
+test('un seul tour : le tour le plus complet est choisi quand des trames manquent', () => {
+  const s = turns(750);
+  s.points.splice(20, 40); // 40 points perdus dans le premier tour
+  const t = singleTour(s);
+  assert.equal(t.points.length, 300);
+  assert.ok(t.points[0] !== s.points[0]);
 });

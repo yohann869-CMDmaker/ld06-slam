@@ -16,7 +16,7 @@ Contenu du fichier `data/reference/carte_reference.json` (module `src/core/refma
 
 | Partie | Contenu |
 | --- | --- |
-| Grid map | Valeurs 0..255 par cellule (0 libre, 128 inconnu, 255 occupé), compressées par plages de valeurs identiques : 85 000 cellules tiennent en 10 ko |
+| Grid map | Valeurs 0..255 par cellule (0 libre, 128 inconnu, 255 occupé), compressées par plages de valeurs identiques : 85 000 cellules tiennent en 12 ko |
 | Carte vectorielle | Segments `[x1, y1, x2, y2]` en mètres, et coins `[x, y, θ]` |
 | Traçabilité | Nom, date, version propre ou brute, scans ayant servi et leurs poses recalées |
 
@@ -26,21 +26,62 @@ Construction de la carte de la salle :
 node scripts/build-reference.mjs
 ```
 
-Le script relit les 7 scans réels de `data/real/` avec leurs poses manuelles, les recale
-automatiquement (multi-résolution + ICP, chaque scan face à tous les autres), construit la grid
-map et la carte vectorielle, garde leur version propre et écrit la carte, les poses recalées
-(`data/reference/poses_recalees.csv`) et un aperçu.
+Le script relit tous les scans réels de `data/real/` avec leur pose de départ (posée à la main),
+les recale automatiquement (multi-résolution + ICP, chaque scan face à tous les autres, en
+2 secondes), construit la grid map et la carte vectorielle, garde leur version propre et écrit
+la carte, les poses recalées (`data/reference/poses_recalees.csv`) et un aperçu.
 
-| Mesure | Valeur |
-| --- | --- |
-| Points cohérents entre scans | 45 % (poses manuelles) → 60 % (poses recalées) |
-| Grid map | 279 × 304 cellules de 5 cm |
-| Carte vectorielle | 31 segments, 9 coins |
-| Emprise | 12,6 m × 13,9 m |
+### Scans ajoutés pour améliorer la carte (3 novembre)
+
+Aux 7 scans du 2 novembre s'ajoutent 11 scans pris le 3 novembre et exportés depuis
+LidarScope (export brut gardé dans `data/real/lidarscope_20261103/`). Import :
+
+```bash
+node scripts/import-lidarscope.mjs data/real/lidarscope_20261103 --prefix scan_1103_ls
+```
+
+1. **Un seul tour par scan.** 6 des 11 fichiers enchaînent 2 à 3 rotations (693 à 870 points
+   pour environ 300 par tour). `singleTour` (`src/core/scan.js`) garde la plus longue suite de
+   points, dans l'ordre d'acquisition, qui tient dans 360° : un tour complet sans doublon
+   d'angle, et le plus complet si des trames ont été perdues.
+2. **Changement de repère.** LidarScope a son propre repère (origine et axes choisis dans
+   l'outil). L'export contient aussi notre scan `scan_1102_175527`, réimporté : il sert d'ancre.
+   T = (pose dans notre repère) ∘ (pose LidarScope)⁻¹ = (−0,610 m ; −4,672 m ; −89,0°), appliqué
+   aux 11 autres scans.
+3. **Recalage commun** des 18 scans (`build-reference.mjs`).
+
+Trois départs ont été comparés pour le recalage commun (même algorithme, seules les poses de
+départ changent) :
+
+| Départ | Points cohérents (10 cm) | Cohérence à 5 cm | Cellules occupées |
+| --- | --- | --- | --- |
+| Nos 7 scans à leurs poses recalées d'hier + poses LidarScope | 80 % | 68 % | 1413 |
+| Nos 7 scans à leurs poses recalées d'hier + nouveaux scans localisés sur l'ancienne carte | 82 % | 70 % | 1402 |
+| **Nos 7 scans à leurs poses manuelles + poses LidarScope** (retenu) | **82 %** | **71 %** | **1376** |
+
+Moins de cellules occupées signifie des murs plus fins, donc mieux superposés. Le départ retenu
+donne aussi la carte la plus propre à l'œil : mur du haut en un seul trait, rectangle central
+fermé.
+
+**Erreur corrigée dans l'ancienne carte.** Le recalage automatique du 2 novembre avait fait
+glisser deux scans du haut de la salle (`180026` et `180105`) d'environ 50 cm le long des murs :
+dans cette zone, des murs longs et parallèles laissent la translation mal contrainte. Les
+nouveaux scans lèvent l'ambiguïté : en y, ces deux scans reviennent à 9 cm et 0 cm de leurs
+poses manuelles (ils en étaient à 62 et 49 cm). Le recalage automatique n'est donc fiable
+qu'avec assez de recouvrement entre scans.
+
+| Mesure | 7 scans (2 nov.) | 18 scans (3 nov.) |
+| --- | --- | --- |
+| Points cohérents entre scans | 45 % → 60 % | 75 % → 82 % |
+| Grid map | 279 × 304 cellules de 5 cm | 280 × 304 cellules de 5 cm |
+| Carte vectorielle | 31 segments, 9 coins | 50 segments, 17 coins |
+| Emprise | 12,6 m × 13,9 m | 12,7 m × 14,1 m |
 
 ![Carte de référence de la salle](img/j2_carte_reference.png)
 
-*Sol blanc, murs gris (grid map propre), segments noirs, coins orange, poses des 7 scans en bleu.*
+*Carte à 18 scans. Sol blanc, murs gris (grid map propre), segments noirs, coins orange, poses
+des scans en bleu. Ancienne carte à 7 scans : [j2_carte_reference_7scans.png](img/j2_carte_reference_7scans.png)
+(rectangle central ouvert et décalé).*
 
 Dans l'application, section **Carte de référence (jour 2)** :
 
@@ -51,10 +92,26 @@ Dans l'application, section **Carte de référence (jour 2)** :
 - la carte s'affiche en fond (sol blanc, murs gris) et le panneau Localisation propose les
   références « Carte de référence : vectorielle » et « Carte de référence : grid map ».
 
-Vérification : scan `scan_1102_180105` placé à 25 cm, 15 cm et 8° de sa pose recalée, puis
-localisé par calcul direct sur la carte vectorielle de référence : arrivée à 0,6 cm et 0,25° de
-la pose recalée, en 18 ms. Seuls 42 % des points du scan tombent à moins de 5 cm d'un segment :
-la carte propre ne garde que les murs, les pieds de tables et de chaises n'y sont pas.
+Vérification sur les 18 scans : chacun est placé à 25 cm, 15 cm et 8° de sa pose recalée
+(29 cm d'écart), puis localisé sur la carte de référence. Réussite = moins de 5 cm et de 2°.
+Les scans ont servi à construire la carte : c'est un contrôle de cohérence, pas encore
+l'évaluation sur des scans de test indépendants.
+
+| Référence | Méthode | Réussite (7 scans) | Réussite (18 scans) | Erreur médiane (18 scans) | Temps |
+| --- | --- | --- | --- | --- | --- |
+| Carte vectorielle | Multi-résolution | 13/18 | **17/18** | 1,0 cm / 0,25° | 87 ms |
+| Carte vectorielle | Calcul direct | 13/18 | 10/18 | 1,8 cm / 0,51° | 9 ms |
+| Grid map | Multi-résolution | 13/18 | 13/18 | 3,2 cm / 0,25° | 110 ms |
+| Grid map | Descente de gradient | 11/18 | 13/18 | 3,3 cm / 0,14° | 9 ms |
+
+- La carte à 18 scans améliore surtout la multi-résolution sur la carte vectorielle : c'est la
+  méthode proposée par défaut avec la carte de référence. Le seul échec (`ls02`) est à 5,1 cm.
+- Le calcul direct est local : au-delà de sa marge de 25 cm il décroche sur les scans qui
+  voient peu de murs (6 à 38 % de leurs points sur la carte). La carte à 50 segments lui
+  propose aussi plus de segments voisins où se tromper.
+- Sur la grid map, l'erreur médiane de 3 cm vient de l'épaisseur des murs (cellules de 5 cm).
+- Peu de points d'un scan tombent sur la carte (40 à 60 %) même quand la pose est juste : la
+  carte propre ne garde que les murs, sans les pieds de tables et de chaises.
 
 ## Références
 

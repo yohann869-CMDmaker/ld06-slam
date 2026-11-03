@@ -736,6 +736,9 @@ function setReferenceMap(map) {
   $('showRefMap').checked = true;
   $('locRef').value = 'refvector';
   fillMethods();
+  // multi-résolution : 17 scans réels sur 18 relocalisés à moins de 5 cm et 2° depuis un départ
+  // à 29 cm et 8° ; le calcul direct, local, décroche au-delà de sa marge de 25 cm
+  $('locMethod').value = 'multires';
   if (!state.scans.length) fitView();
   draw();
 }

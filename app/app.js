@@ -264,6 +264,36 @@ async function loadSimulated() {
   }
 }
 
+/**
+ * Les scans réels de la salle (data/real) à leurs poses recalées (data/reference/poses_recalees.csv,
+ * écrit par scripts/build-reference.mjs) : de quoi tout retrouver après un rechargement de la page.
+ * Les scans déjà dans la liste ne sont pas rechargés.
+ */
+async function loadRoomScans() {
+  try {
+    const res = await fetch('../data/reference/poses_recalees.csv', { cache: 'no-store' });
+    if (!res.ok) throw new Error('data/reference/poses_recalees.csv introuvable (node scripts/build-reference.mjs)');
+    const rows = (await res.text()).trim().split(/\r?\n/).slice(1).map((l) => l.split(','));
+    const have = new Set(state.scans.map((e) => e.name));
+    let n = 0;
+    for (const [name, x, y, theta] of rows) {
+      if (have.has(name)) continue;
+      const r = await fetch(`../data/real/${name}`, { cache: 'no-store' });
+      if (!r.ok) continue;
+      const entry = addScan(parseScanCSV(await r.text(), name));
+      entry.pose = { x: Number(x), y: Number(y), theta: Number(theta) }; // « Pose du fichier » : pose manuelle
+      n++;
+    }
+    renderScanList();
+    fitView();
+    poseChanged();
+    const high = state.scans.filter((e) => e.scan.elevated).length;
+    toast(`${n} scans de la salle chargés à leurs poses recalées${high ? ` (${high} pris en hauteur)` : ''}`);
+  } catch (err) {
+    toast(`Chargement impossible : ${err.message}`);
+  }
+}
+
 // ------------------------------------------------------------------ robot en temps réel
 // Le relais scripts/live.py lit l'ESP32 sur le port USB et diffuse chaque nouveau scan
 // sur /live (Server-Sent Events). Le scan courant est dessiné en continu à la pose du scan
@@ -1167,6 +1197,7 @@ $('fileScans').onchange = (ev) => {
   ev.target.value = '';
 };
 $('btnSim').onclick = loadSimulated;
+$('btnRoom').onclick = loadRoomScans;
 $('liveAdd').onclick = liveCapture;
 $('btnAlign').onclick = runAutoAlign;
 $('btnExportDay1').onclick = exportDayOne;

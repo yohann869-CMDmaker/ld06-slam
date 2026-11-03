@@ -92,6 +92,8 @@ Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
 
 ## Carte de référence et localisation (jour 2)
 
+- **Scans de la salle** (section Scans) : recharge en un clic les scans réels de `data/real` à
+  leurs poses recalées (après un rechargement de la page, l'application repart vide).
 - **Charger la carte de la salle** (section Carte de référence) : la salle construite au jour 1
   (`data/reference/carte_reference.json`, régénérée par `node scripts/build-reference.mjs`)
   s'affiche en fond et sert de référence.

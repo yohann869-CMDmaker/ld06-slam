@@ -1,0 +1,266 @@
+// SLAM (jour 3) : localisation et cartographie simultanées, à partir des outils des jours 1 et 2.
+//
+// Pour chaque nouveau scan :
+//   1. prédiction : pose du scan précédent, composée avec le mouvement commandé s'il est connu
+//      (le robot Mecanum n'a pas de codeurs : c'est la durée des commandes, très approximative) ;
+//   2. suivi sur la CARTE LOCALE (les `localKeyframes` derniers scans clés) : multi-résolution dans
+//      une fenêtre autour de la prédiction, puis ICP. Une carte locale plutôt que toute la carte :
+//      au retour dans une zone déjà vue, le suivi ne « saute » pas vers l'ancienne carte (ce saut
+//      fausserait la chaîne des déplacements) ; c'est la fermeture de boucle qui s'en charge ;
+//      si le scan ne colle pas (moins de `minInliers` de ses points sur la carte), relocalisation
+//      globale dans toute la carte (globalloc.js) ;
+//   3. cartographie : le scan est ajouté à la carte s'il apporte du nouveau (« scan clé » : au
+//      moins `keyDist` ou `keyAngle` depuis le dernier scan clé) et si sa pose est sûre ;
+//   4. graphe de poses : chaque scan clé est relié au précédent par le déplacement suivi ;
+//   5. fermeture de boucle : le nouveau scan clé est recalé sur les anciens scans clés proches
+//      (hors carte locale). Si l'un d'eux colle (au moins `loopMinInliers` des points), un lien
+//      « boucle » est ajouté et le graphe est optimisé (posegraph.js) : toute la trajectoire est
+//      corrigée, la dérive répartie le long de la boucle, et la carte reconstruite.
+
+import { scanToLocalXY } from './scan.js';
+import { gridFromScan } from './gridmap.js';
+import { VectorMap } from './vectormap.js';
+import { composePoses, DEG, invertPose, normalizeAngleDeg } from './pose.js';
+import { localize, scanReference } from './localization.js';
+import { globalLocalize } from './globalloc.js';
+import { dominantDirection } from './cleanup.js';
+import { optimizePoseGraph } from './posegraph.js';
+
+export const DEFAULT_SLAM = Object.freeze({
+  window: { xyRange: 0.5, thRange: 20 }, // recherche locale autour de la prédiction
+  minInliers: 0.5, // part des points du scan sur la carte pour accepter le suivi
+  relocalize: true, // relocalisation globale si le suivi échoue
+  keyDist: 0.2, // m : nouveau scan clé après ce déplacement
+  keyAngle: 10, // degrés : ou cette rotation
+  localKeyframes: 15, // taille de la carte locale du suivi (en scans clés)
+  loopClosure: true,
+  loopRadius: 3, // m : anciens scans clés candidats à moins de cette distance de la pose estimée
+  loopWindow: { xyRange: 1, thRange: 20 }, // recherche autour de la pose estimée (dérive tolérée)
+  loopMinInliers: 0.6, // part des points du nouveau scan sur l'ancien pour accepter la boucle
+  loopEvery: 5, // scans clés minimum entre deux fermetures de boucle
+  anisotropic: true, // précision des liens par direction, d'après les normales des points (sinon σ fixes)
+  sigmaPoint: 0.03, // m : bruit supposé d'un point (bruit du lidar + erreurs de recalage)
+  sigmaTrack: { xy: 0.05, theta: 1 }, // précision d'un lien de suivi si anisotropic = false (m, degrés)
+  sigmaLoop: { xy: 0.03, theta: 0.5 }, // précision d'un lien de boucle si anisotropic = false
+});
+
+/**
+ * Information (inverse de la covariance) d'un recalage point-droite, d'après la géométrie du scan :
+ * chaque point de normale n (droite locale ajustée sur ses voisins) contraint la pose dans la
+ * direction n seulement : Jᵢ = [nx, ny, p × n] et Ω = Σ JᵢJᵢᵀ / σ². Dans un couloir, toutes les
+ * normales sont en travers : Ω est grande en travers et presque nulle le long ; le graphe saura
+ * que c'est le long du couloir que la dérive s'accumule. Les points voisins étant corrélés, on
+ * divise par 4 ; un petit a priori (50 cm, 20°) garde Ω inversible.
+ */
+export function scanInformation(points, sigma = DEFAULT_SLAM.sigmaPoint) {
+  const H = [
+    [1 / 0.25, 0, 0],
+    [0, 1 / 0.25, 0],
+    [0, 0, 1 / (20 * DEG) ** 2],
+  ];
+  const k2 = 1 / (4 * sigma * sigma);
+  for (let i = 2; i + 2 < points.length; i++) {
+    const nb = points.slice(i - 2, i + 3).filter((q) => Math.hypot(q.x - points[i].x, q.y - points[i].y) < 0.15);
+    if (nb.length < 4) continue;
+    // direction principale des voisins (ACP 2 × 2) ; la normale lui est perpendiculaire
+    const mx = nb.reduce((a, q) => a + q.x, 0) / nb.length;
+    const my = nb.reduce((a, q) => a + q.y, 0) / nb.length;
+    let sxx = 0;
+    let syy = 0;
+    let sxy = 0;
+    for (const q of nb) {
+      sxx += (q.x - mx) ** 2;
+      syy += (q.y - my) ** 2;
+      sxy += (q.x - mx) * (q.y - my);
+    }
+    const phi = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+    const nx = -Math.sin(phi);
+    const ny = Math.cos(phi);
+    const J = [nx, ny, points[i].x * ny - points[i].y * nx];
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) H[r][c] += J[r] * J[c] * k2;
+  }
+  return H;
+}
+
+const toWorld = (pts, pose) => {
+  const c = Math.cos(pose.theta * DEG);
+  const s = Math.sin(pose.theta * DEG);
+  return pts.map((p) => ({ x: pose.x + c * p.x - s * p.y, y: pose.y + s * p.x + c * p.y }));
+};
+
+/** Déplacement de a vers b exprimé dans le repère de a : a⁻¹ ∘ b. */
+export function relative(a, b) {
+  const d = composePoses(invertPose(a), b);
+  return { x: d.x, y: d.y, theta: normalizeAngleDeg(d.theta) };
+}
+
+export class Slam {
+  constructor(options = {}) {
+    this.o = {
+      ...DEFAULT_SLAM,
+      ...options,
+      window: { ...DEFAULT_SLAM.window, ...options.window },
+      loopWindow: { ...DEFAULT_SLAM.loopWindow, ...options.loopWindow },
+    };
+    this.keyframes = []; // [{ index, scan, points (locaux), pose }]
+    this.trajectory = []; // une entrée par scan reçu : { index, pose, mode, inliers, keyframe, anchor, rel }
+    this.edges = []; // graphe de poses : { from, to, z, sigma, kind: 'suite' | 'boucle' }
+    this.loops = []; // fermetures de boucle : { from, to, inliers, correction (m), error0, error }
+    this.grid = null; // grid map de tous les scans clés
+    this.vector = new VectorMap([], { absence: false });
+    this.last = null; // dernière pose estimée
+    this.lastLoop = -Infinity;
+    this.localRef = null;
+    this.globalRef = null;
+  }
+
+  /** Carte locale du suivi : points des derniers scans clés. */
+  localReference() {
+    if (!this.localRef) this.localRef = scanReference(this.keyframes.slice(-this.o.localKeyframes).flatMap((kf) => toWorld(kf.points, kf.pose)));
+    return this.localRef;
+  }
+
+  /** Carte complète (relocalisation) : points de tous les scans clés, avec la grid map pour les positions candidates. */
+  globalReference() {
+    if (!this.globalRef) {
+      this.globalRef = scanReference(this.keyframes.flatMap((kf) => toWorld(kf.points, kf.pose)));
+      this.globalRef.grid = this.grid;
+    }
+    return this.globalRef;
+  }
+
+  addKeyframe(scan, points, pose, index) {
+    const k = this.keyframes.length;
+    if (k) {
+      const link = this.o.anisotropic ? { info: scanInformation(points, this.o.sigmaPoint) } : { sigma: this.o.sigmaTrack };
+      this.edges.push({ from: k - 1, to: k, z: relative(this.keyframes[k - 1].pose, pose), ...link, kind: 'suite' });
+    }
+    this.keyframes.push({ index, scan, points, pose: { ...pose } });
+    if (!this.grid) this.grid = gridFromScan(scan, pose);
+    else this.grid.integrateScan(scan, pose);
+    this.vector.integrateScan(scan, pose);
+    this.localRef = null;
+    this.globalRef = null;
+    return k;
+  }
+
+  /**
+   * Ajoute un scan. odom : déplacement commandé depuis le scan précédent, dans le repère du robot
+   * ({ x, y, theta }, facultatif). first : pose du premier scan (défaut : celle du fichier, ou 0).
+   * Retourne { pose, mode ('départ' | 'suivi' | 'relocalisé' | 'perdu'), inliers, keyframe, loop, time }.
+   */
+  addScan(scan, odom = null, first = null) {
+    const t0 = performance.now();
+    const index = this.trajectory.length;
+    const points = scanToLocalXY(scan);
+    if (!this.keyframes.length) {
+      const pose = { ...(first ?? scan.pose ?? { x: 0, y: 0, theta: 0 }) };
+      const k = this.addKeyframe(scan, points, pose, index);
+      this.last = pose;
+      const r = { index, pose, mode: 'départ', inliers: 1, keyframe: true, anchor: k, rel: { x: 0, y: 0, theta: 0 }, loop: null, time: performance.now() - t0 };
+      this.trajectory.push(r);
+      return r;
+    }
+    // 1. prédiction ; 2. suivi sur la carte locale
+    const predicted = odom ? composePoses(this.last, odom) : { ...this.last };
+    const ref = this.localReference();
+    const m = localize(ref, points, predicted, 'multires', this.o.window);
+    const i = localize(ref, points, m.pose, 'icp');
+    let best = i.inliers >= m.inliers ? i : m;
+    let mode = 'suivi';
+    if (best.inliers < this.o.minInliers && this.o.relocalize) {
+      const g = this.relocalize(points);
+      // relocalisation acceptée seulement si elle est fiable ET colle à la carte (sinon : symétrique
+      // de la salle, ou zone pas encore cartographiée)
+      if (g && !g.ambiguous && g.inliers >= this.o.minInliers && g.inliers > best.inliers && freeSpaceConflict(this.grid, points, g.pose) <= 0.05) {
+        best = g;
+        mode = 'relocalisé';
+      }
+    }
+    if (best.inliers < this.o.minInliers && mode === 'suivi') mode = 'perdu';
+    let pose = best.pose;
+    // 3. cartographie : scan clé s'il a assez bougé et si sa pose est sûre
+    const d = relative(this.keyframes[this.keyframes.length - 1].pose, pose);
+    const keyframe = mode !== 'perdu' && (Math.hypot(d.x, d.y) >= this.o.keyDist || Math.abs(d.theta) >= this.o.keyAngle);
+    let loop = null;
+    let anchor = this.keyframes.length - 1;
+    if (keyframe) {
+      anchor = this.addKeyframe(scan, points, pose, index);
+      // 5. fermeture de boucle
+      if (this.o.loopClosure && anchor - this.lastLoop >= this.o.loopEvery) loop = this.closeLoop(anchor);
+      pose = this.keyframes[anchor].pose;
+    }
+    this.last = pose;
+    const r = { index, pose, mode, inliers: best.inliers, keyframe, anchor, rel: relative(this.keyframes[anchor].pose, pose), loop, time: performance.now() - t0 };
+    this.trajectory.push(r);
+    return r;
+  }
+
+  relocalize(points) {
+    const walls = this.vector.segments;
+    return globalLocalize(this.globalReference(), points, { mapDominant: walls.length ? dominantDirection(walls) : undefined });
+  }
+
+  /** Cherche une boucle pour le scan clé k ; si trouvée : lien, optimisation du graphe, carte reconstruite. */
+  closeLoop(k) {
+    const kf = this.keyframes[k];
+    const candidates = this.keyframes
+      .map((old, j) => ({ j, d: Math.hypot(old.pose.x - kf.pose.x, old.pose.y - kf.pose.y) }))
+      .filter((c) => c.j < k - this.o.localKeyframes && c.d <= this.o.loopRadius)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 2);
+    for (const { j } of candidates) {
+      const old = this.keyframes[j];
+      const ref = scanReference(toWorld(old.points, old.pose));
+      const m = localize(ref, kf.points, kf.pose, 'multires', this.o.loopWindow);
+      const r = localize(ref, kf.points, m.pose, 'icp');
+      const best = r.inliers >= m.inliers ? r : m;
+      if (best.inliers < this.o.loopMinInliers) continue;
+      const link = this.o.anisotropic ? { info: scanInformation(kf.points, this.o.sigmaPoint) } : { sigma: this.o.sigmaLoop };
+      this.edges.push({ from: j, to: k, z: relative(old.pose, best.pose), ...link, kind: 'boucle' });
+      const before = this.keyframes.map((x) => ({ ...x.pose }));
+      const g = optimizePoseGraph(before, this.edges);
+      g.poses.forEach((p, n) => (this.keyframes[n].pose = p));
+      // les scans non clés suivent le scan clé auquel ils sont rattachés
+      for (const t of this.trajectory) t.pose = composePoses(this.keyframes[t.anchor].pose, t.rel);
+      this.rebuild();
+      this.lastLoop = k;
+      const loop = { from: j, to: k, inliers: best.inliers, correction: Math.hypot(before[k].x - this.keyframes[k].pose.x, before[k].y - this.keyframes[k].pose.y), error0: g.error0, error: g.error };
+      this.loops.push(loop);
+      return loop;
+    }
+    return null;
+  }
+
+  /** Recalcule les cartes après une correction des poses des scans clés. */
+  rebuild() {
+    this.grid = null;
+    this.vector = new VectorMap([], { absence: false });
+    for (const kf of this.keyframes) {
+      if (!this.grid) this.grid = gridFromScan(kf.scan, kf.pose);
+      else this.grid.integrateScan(kf.scan, kf.pose);
+      this.vector.integrateScan(kf.scan, kf.pose);
+    }
+    this.localRef = null;
+    this.globalRef = null;
+  }
+}
+
+/**
+ * Cohérence avec l'espace libre : part des points du scan, placé à `pose`, qui tombent dans des
+ * cellules que la carte a vues libres (classées libres). Un point lidar marque un obstacle :
+ * il ne peut pas être là où la carte a vu du sol vide. À une pose fausse (symétrique de la salle,
+ * zone pas encore cartographiée), beaucoup de points y tombent ; à la bonne pose presque aucun.
+ * Valable pour des scans pris à la même hauteur (un trajet du robot au sol) : un scan pris en
+ * hauteur voit « vide » au-dessus des meubles que les scans au sol rencontrent.
+ */
+export function freeSpaceConflict(grid, points, pose) {
+  const c = Math.cos(pose.theta * DEG);
+  const s = Math.sin(pose.theta * DEG);
+  let n = 0;
+  for (const p of points) {
+    const [i, j] = grid.worldToCell(pose.x + c * p.x - s * p.y, pose.y + s * p.x + c * p.y);
+    if (grid.inside(i, j) && grid.classify(grid.index(i, j)) === -1) n++;
+  }
+  return n / Math.max(points.length, 1);
+}

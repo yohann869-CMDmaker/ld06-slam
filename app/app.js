@@ -7,6 +7,7 @@ import { VectorMap } from '../src/core/vectormap.js';
 import { autoAlign, consistency, matchScan } from '../src/core/matching.js';
 import { cleanMaps, cleanVectorMap, dominantDirection, isPartlyOccupied, labelPositions, parseLabels } from '../src/core/cleanup.js';
 import { globalLocalize } from '../src/core/globalloc.js';
+import { Slam } from '../src/core/slam.js';
 import { gridReference, localize, METHODS, METHODS_BY_REFERENCE, scanReference, vectorReference } from '../src/core/localization.js';
 import { dayOneExports, drawLabels, MAPTOOL, maptoolColor } from './figures.js';
 import { makeReferenceMap, parseReferenceMap, referenceBounds, serializeReferenceMap } from '../src/core/refmap.js';
@@ -28,6 +29,10 @@ const state = {
   reference: null,
   labels: null, // carte sémantique de la salle : meubles nommés (data/reference/etiquettes.json)
   locLog: [], // résultats de localisation de la séance (bouton « Exporter les résultats »)
+  slam: null, // SLAM en direct (jour 3)
+  slamTrack: null, // trajectoire estimée par le SLAM (dessinée en bleu)
+  slamLivePose: null, // pose courante du robot estimée par le SLAM en direct
+  slamBusy: false,
   view: { x: 4, y: 3, scale: 70 }, // centre de la vue (m) et pixels par mètre
   mouse: null,
 };
@@ -270,6 +275,25 @@ async function loadSimulated() {
 }
 
 /**
+ * Trajet simulé du jour 3 (data/sim_trajet, scripts/gen-trajet.mjs) : 75 scans le long d'une boucle
+ * de 21 m dans une salle de classe simulée, placés selon l'odométrie seule (qui dérive). Bouton
+ * « SLAM sur les scans visibles » ensuite : la carte se remet d'aplomb.
+ */
+async function loadSimTrajet() {
+  state.labels = null;
+  try {
+    const index = await (await fetch('../data/sim_trajet/index.json', { cache: 'no-store' })).json();
+    for (const s of index.scans) addScan(parseScanCSV(await (await fetch(`../data/sim_trajet/${s.file}`)).text(), s.file));
+    renderScanList();
+    fitView();
+    poseChanged();
+    toast(`${index.scans.length} scans du trajet simulé, placés selon l'odométrie seule : lancer « SLAM sur les scans visibles »`);
+  } catch (err) {
+    toast(`Chargement impossible : ${err.message} (node scripts/gen-trajet.mjs)`);
+  }
+}
+
+/**
  * Les scans réels de la salle (data/real) à leurs poses recalées (data/reference/poses_recalees.csv,
  * écrit par scripts/build-reference.mjs) : de quoi tout retrouver après un rechargement de la page.
  * Les scans déjà dans la liste ne sont pas rechargés.
@@ -346,6 +370,7 @@ async function startLive() {
     live.time = Date.now();
     $('liveAdd').disabled = false;
     renderLiveStatus();
+    if ($('slamLive').checked) slamLiveStep();
     if (firstScan && !state.scans.length) fitView();
     else draw();
   });
@@ -365,6 +390,7 @@ function renderLiveStatus() {
 
 /** Pose à laquelle le scan en temps réel est dessiné : celle du scan sélectionné (point de départ du recalage). */
 function livePose() {
+  if ($('slamLive').checked && state.slamLivePose) return state.slamLivePose;
   return state.selected ? state.selected.pose : { x: 0, y: 0, theta: 0 };
 }
 
@@ -617,6 +643,7 @@ function render() {
     drawCorners();
     drawMapLabels();
     drawGlobalCandidates();
+    drawSlamTrack();
     for (const e of state.scans.filter((v) => v.visible)) drawRobot(e, e === state.selected);
     drawLive(s);
     renderStatus();
@@ -699,8 +726,35 @@ function render() {
   for (const e of visible) drawRobot(e, e === sel);
   drawMapLabels();
   drawGlobalCandidates();
+  drawSlamTrack();
   drawLive(s);
   renderStatus();
+}
+
+/** Trajectoire estimée par le SLAM : ligne bleue, scans clés en points, pose courante en cercle. */
+function drawSlamTrack() {
+  const t = state.slamTrack;
+  if (!t?.length) return;
+  ctx.save();
+  ctx.strokeStyle = '#1c7ed6';
+  ctx.lineWidth = 2.5;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  t.forEach((p, k) => (k ? ctx.lineTo(sx(p.x), sy(p.y)) : ctx.moveTo(sx(p.x), sy(p.y))));
+  ctx.stroke();
+  ctx.fillStyle = '#1c7ed6';
+  for (const p of t) {
+    ctx.beginPath();
+    ctx.arc(sx(p.x), sy(p.y), 2.5, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+  const last = state.slamLivePose ?? t.at(-1);
+  ctx.strokeStyle = '#1c7ed6';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(sx(last.x), sy(last.y), 9, 0, 2 * Math.PI);
+  ctx.stroke();
+  ctx.restore();
 }
 
 /** Candidates de la localisation globale : cercles numérotés (1 = pose retenue), orientés. */
@@ -1107,6 +1161,73 @@ async function runGlobal() {
   toast(`${e.name} : localisation globale ${r.ambiguous ? 'ambiguë' : 'fiable'}, ${Math.round(r.inliers * 100)} % des points sur la carte`);
 }
 
+// ------------------------------------------------------------------ SLAM (jour 3)
+
+/**
+ * SLAM sur les scans visibles, dans l'ordre de la liste (src/core/slam.js) : le premier scan fixe
+ * le repère à sa pose actuelle, chaque suivant est localisé sur la carte déjà construite (suivi
+ * local, relocalisation globale si besoin), ajouté s'il apporte du nouveau, et les boucles sont
+ * fermées. Les poses manuelles des autres scans sont ignorées. Fait pour des scans pris le long
+ * d'un trajet (tous les 20 à 30 cm, au sol).
+ */
+async function runSlamScans() {
+  const vis = state.scans.filter((e) => e.visible);
+  if (vis.length < 2) return toast('Il faut au moins 2 scans visibles, dans l\'ordre du trajet');
+  const slam = new Slam();
+  const t0 = performance.now();
+  for (const [k, e] of vis.entries()) {
+    const r = slam.addScan(e.scan, null, k === 0 ? e.pose : null);
+    // après une fermeture de boucle, toute la trajectoire est corrigée
+    slam.trajectory.forEach((t, i) => (vis[i].pose = { ...t.pose }));
+    state.slamTrack = slam.trajectory.map((t) => t.pose);
+    $('slamStat').textContent = `${k + 1}/${vis.length} · ${e.name} : ${r.mode} (${Math.round(100 * r.inliers)} % des points sur la carte)${r.loop ? ` · boucle fermée (correction ${Math.round(100 * r.loop.correction)} cm)` : ''}`;
+    draw();
+    await tick();
+  }
+  poseChanged();
+  const count = (m) => slam.trajectory.filter((t) => t.mode === m).length;
+  const lost = slam.trajectory.filter((t) => t.mode === 'perdu').map((t) => vis[t.index].name);
+  $('slamStat').textContent = `SLAM terminé en ${((performance.now() - t0) / 1000).toFixed(1)} s : ${slam.keyframes.length} scans clés, ${count('suivi')} suivis, ${count('relocalisé')} relocalisés, ${slam.loops.length} boucle(s) fermée(s)${lost.length ? ` · perdus (pose douteuse) : ${lost.join(', ')}` : ''}`;
+  toast(lost.length ? `${lost.length} scan(s) perdu(s) : trop loin du précédent ou trop différents` : 'SLAM terminé');
+}
+
+/**
+ * SLAM en direct (robot en USB, relais live.py) : chaque scan reçu est localisé sur la carte en
+ * cours ; quand le robot a assez bougé (20 cm ou 10°), le scan rejoint la liste à sa pose estimée
+ * et la carte grandit. Il suffit de pousser ou de piloter doucement le robot.
+ */
+function slamLiveStep() {
+  if (state.slamBusy || !live.scan) return;
+  state.slamBusy = true;
+  try {
+    state.slam ??= new Slam();
+    const slam = state.slam;
+    const first = slam.keyframes.length ? null : state.selected?.pose ?? { x: 0, y: 0, theta: 0 };
+    const r = slam.addScan(live.scan, null, first);
+    state.slamLivePose = r.pose;
+    if (r.keyframe) {
+      const entry = addScan(parseScanCSV(live.text, captureName()));
+      entry.pose = { ...r.pose };
+      entry.slamIndex = r.index;
+      select(entry);
+    }
+    if (r.loop) for (const e of state.scans) if (e.slamIndex != null) e.pose = { ...slam.trajectory[e.slamIndex].pose };
+    state.slamTrack = slam.keyframes.map((kf) => kf.pose);
+    if (r.keyframe || r.loop) poseChanged();
+    $('slamStat').textContent = `SLAM en direct : ${slam.keyframes.length} scans clés · dernier scan ${r.mode} (${Math.round(100 * r.inliers)} % sur la carte, ${Math.round(r.time)} ms)${slam.loops.length ? ` · ${slam.loops.length} boucle(s)` : ''}`;
+    draw();
+  } finally {
+    state.slamBusy = false;
+  }
+}
+
+function resetSlam() {
+  Object.assign(state, { slam: null, slamTrack: null, slamLivePose: null });
+  for (const e of state.scans) delete e.slamIndex;
+  $('slamStat').textContent = 'SLAM réinitialisé : le prochain scan en direct fixe le repère (à la pose du scan sélectionné).';
+  draw();
+}
+
 /** Toutes les méthodes depuis la même pose initiale ; la pose du scan n'est pas modifiée. */
 async function runCompare() {
   const e = requireSelection();
@@ -1358,6 +1479,7 @@ $('fileScans').onchange = (ev) => {
 };
 $('btnSim').onclick = loadSimulated;
 $('btnRoom').onclick = loadRoomScans;
+$('btnTrajet').onclick = loadSimTrajet;
 $('liveAdd').onclick = liveCapture;
 $('btnAlign').onclick = runAutoAlign;
 $('btnExportDay1').onclick = exportDayOne;
@@ -1381,6 +1503,14 @@ $('btnLocalize').onclick = runLocalize;
 $('btnCompare').onclick = runCompare;
 $('btnGlobal').onclick = runGlobal;
 $('btnLocExport').onclick = exportLocLog;
+$('btnSlam').onclick = runSlamScans;
+$('btnSlamReset').onclick = resetSlam;
+$('slamLive').onchange = () => {
+  $('slamStat').textContent = $('slamLive').checked
+    ? 'SLAM en direct : déplacer doucement le robot ; un scan clé est ajouté tous les 20 cm ou 10°.'
+    : 'SLAM en direct arrêté.';
+  draw();
+};
 $('vecMinObs').onchange = () => {
   refreshClean();
   draw();

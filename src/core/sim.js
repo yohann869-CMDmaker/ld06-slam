@@ -2,7 +2,7 @@
 // lancer de rayons contre les murs), avec bruit et défauts réalistes.
 // Sert à produire des scans dont la pose vraie est connue (validation, jour 2).
 
-import { DEG } from './pose.js';
+import { composePoses, DEG, invertPose } from './pose.js';
 
 /** Générateur pseudo-aléatoire reproductible (mulberry32). */
 export function mulberry32(seed) {
@@ -97,4 +97,41 @@ export function simulateScan(segments, pose, options = {}) {
     format: 'simulé',
     comments: [`simulated: rays=${o.rays}, noise_r=${o.noiseRange}m, noise_a=${o.noiseAngle}deg, drop=${o.dropRate}, seed=${o.seed}`],
   };
+}
+
+/**
+ * Trajet simulé (jour 3) : une pose tous les `step` m le long d'une ligne brisée (cap dans le sens
+ * de la marche, rotation sur place aux coins), un scan par pose, et l'« odométrie » qu'aurait le
+ * robot entre deux poses : le déplacement vrai entaché d'erreurs. Le robot Mecanum n'a pas de
+ * codeurs : on ne connaît que la durée des commandes, et les roues glissent (`odoTrans` : erreur en
+ * part de la distance, `odoRot` : écart-type de l'angle par pas, `odoBias` : dérive de cap en
+ * degrés par mètre parcouru).
+ * Retourne { poses (vraies), scans, odom } ; odom[k] = déplacement mesuré de k − 1 à k (repère du robot).
+ */
+export function simulateTrajectory(scene, waypoints, options = {}) {
+  const o = { step: 0.3, odoTrans: 0.1, odoRot: 2, odoBias: 1.5, seed: 7, ...options };
+  const poses = [];
+  for (let w = 0; w + 1 < waypoints.length; w++) {
+    const a = waypoints[w];
+    const b = waypoints[w + 1];
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    const heading = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+    const n = Math.max(1, Math.ceil(len / o.step));
+    for (let k = 0; k < n; k++) poses.push({ x: a.x + ((b.x - a.x) * k) / n, y: a.y + ((b.y - a.y) * k) / n, theta: heading });
+  }
+  const end = waypoints[waypoints.length - 1];
+  poses.push({ x: end.x, y: end.y, theta: poses.length ? poses[poses.length - 1].theta : 0 });
+  const scans = poses.map((p, k) => ({ ...simulateScan(scene, p, { seed: o.seed * 1000 + k, ...o.scan }), name: `trajet_${String(k).padStart(2, '0')}` }));
+  const rng = mulberry32(o.seed);
+  const odom = poses.map((p, k) => {
+    if (!k) return null;
+    const d = composePoses(invertPose(poses[k - 1]), p);
+    const dist = Math.hypot(d.x, d.y);
+    return {
+      x: d.x * (1 + o.odoTrans * gaussian(rng)),
+      y: d.y * (1 + o.odoTrans * gaussian(rng)) + o.odoTrans * dist * gaussian(rng),
+      theta: d.theta + o.odoRot * gaussian(rng) + o.odoBias * dist,
+    };
+  });
+  return { poses, scans, odom };
 }

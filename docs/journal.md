@@ -147,6 +147,18 @@ direct 10/18 → 16/18.
 | Colonne « pris en hauteur » vide pour le jeu de test | Scans d'hier non marqués | Détection automatique indiquée (« en hauteur ? (détecté) ») |
 | Résultats de l'application non conservés | Rien n'était enregistré | Journal de la séance et bouton « Exporter les résultats » (CSV) |
 
+## Mardi 3 novembre (soir) — jour 3, SLAM
+
+| Problème | Cause | Correction |
+| --- | --- | --- |
+| Pas de dérive visible dans la salle simulée (0,7 cm) | Le premier scan voit presque toute la salle | Second scénario : couloir en boucle de 54 m, lidar limité à 4 m (dérive de 44 cm) |
+| Suivi qui « saute » vers l'ancienne carte au retour | Suivi sur toute la carte | Suivi sur la carte locale (15 derniers scans clés) ; la fermeture de boucle corrige |
+| Correction répartie uniformément le long de la boucle | Même précision supposée pour tous les liens | Matrice d'information par lien d'après les normales des points (précis en travers d'un couloir, imprécis le long) : 30 → 27 cm |
+| Relocalisation acceptée avec 47 % de points sur la carte (scan placé au symétrique de la salle) | Seule la fiabilité était testée | Relocalisation acceptée seulement si au moins 50 % des points collent et sans contredire l'espace libre |
+| SLAM à partir de zéro sur les 18 scans réels : scans perdus ou placés au symétrique | Clichés épars, deux hauteurs, salle presque symétrique : ambiguïté perceptive | Méthode retirée (pas fiable) ; un SLAM a besoin d'un trajet continu au sol : SLAM en direct |
+| Test de l'espace libre inutilisable sur les scans réels | Les scans pris en hauteur voient « vide » au-dessus des meubles | Gardé pour le SLAM en direct (trajet au sol, même hauteur) |
+| Cellule vue libre une fois non comptée | Seuil p < 0,2 alors qu'une observation donne 0,4 | Test sur la classe « libre » de la grid map |
+
 Ajouts après lecture des documents du cours : localisation sur trois références et six
 méthodes (dont le calcul direct inspiré de l'article « Mars Attacks! »), coins, oubli des
 segments rarement vus, banc d'essai chiffré du jour 2.

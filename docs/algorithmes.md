@@ -243,3 +243,27 @@ Résultats : [jour2.md](jour2.md) (localisation globale) et [jour2_global.md](jo
 cartes sont construites avec les autres scans ; mêmes poses initiales pour toutes les méthodes,
 de 5 cm / 2° à 45 cm / 18° d'écart ; réussite = moins de 5 cm et moins de 2°. Résultats et
 analyse : [jour2.md](jour2.md) et [jour2_benchmark.md](jour2_benchmark.md).
+
+---
+
+## Jour 3 — localisation et cartographie simultanées
+
+### 13. SLAM (`src/core/slam.js`)
+
+Pour chaque scan : prédiction (pose précédente ∘ mouvement commandé) ; suivi sur la carte locale
+des 15 derniers scans clés (multi-résolution ±50 cm / ±20°, puis ICP) ; relocalisation globale si
+moins de 50 % des points collent (acceptée si fiable, collée à la carte et sans contredire
+l'espace libre : `freeSpaceConflict`) ; scan clé s'il a bougé de 20 cm ou 10° ; recherche de boucle
+sur les anciens scans clés à moins de 3 m (60 % des points), puis optimisation du graphe.
+
+### 14. Graphe de poses (`src/core/posegraph.js`)
+
+Nœuds : poses des scans clés. Liens : déplacement mesuré zᵢⱼ et matrice d'information Ωᵢⱼ. Erreur
+eᵢⱼ = (pose j vue depuis la pose i) − zᵢⱼ ; on minimise Σ eᵀΩe par Gauss-Newton (jacobiennes
+analytiques du Graph-SLAM 2D, système normal dense résolu par Cholesky, premier nœud fixé). Ω vient
+des normales des points du scan (`scanInformation`) : chaque point de normale n contraint la pose
+selon n seulement, J = [nx, ny, p × n], Ω = Σ JJᵀ / σ² (divisée par 4 : points voisins corrélés,
+plus un petit a priori) ; un lien pris dans un couloir est précis en travers, imprécis le long.
+
+Résultats : [jour3.md](jour3.md) et [jour3_slam.md](jour3_slam.md).
+

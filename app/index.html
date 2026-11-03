@@ -20,6 +20,7 @@
         <button id="btnPaste" title="Coller la sortie du moniteur série (programme de test, lignes >lidar:...)">Coller un scan</button>
         <button id="btnRoom" title="Les scans réels de data/real à leurs poses recalées (carte de référence)">Scans de la salle</button>
         <button id="btnSim">Jeu simulé</button>
+        <button id="btnTrajet" title="Jour 3 : 75 scans le long d'un trajet simulé, placés selon l'odométrie seule (pour essayer le SLAM)">Trajet simulé</button>
       </div>
       <p class="hint">Robot branché en USB : lancer <code>python scripts/live.py</code>, le scan s'affiche en
         temps réel (en noir) à la pose du scan sélectionné. <strong>Espace</strong> l'ajoute à la liste.</p>
@@ -159,6 +160,20 @@
         montre les 3 meilleures candidates (1 = retenue). « Pose du fichier » annule.</p>
       <p class="hint" id="locLogStat"></p>
       <div id="locResult" class="stat"></div>
+    </section>
+
+    <section>
+      <h2>SLAM (jour 3)</h2>
+      <div class="row">
+        <button id="btnSlam" class="primary-btn" title="Dans l'ordre de la liste, sans les poses manuelles : le premier scan fixe le repère">SLAM sur les scans visibles</button>
+        <button id="btnSlamReset">Réinitialiser</button>
+      </div>
+      <label class="check"><input type="checkbox" id="slamLive"> SLAM en direct (robot en USB)</label>
+      <p class="hint">« SLAM sur les scans visibles » : chaque scan est localisé sur la carte construite avec les
+        précédents puis ajouté ; les boucles sont fermées. Pour des scans pris le long d'un trajet, au sol, tous
+        les 20 à 30 cm. « SLAM en direct » : pousser ou piloter doucement le robot, la carte se construit seule
+        (un scan clé tous les 20 cm ou 10°).</p>
+      <p class="stat" id="slamStat"></p>
     </section>
 
     <section>

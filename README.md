@@ -4,7 +4,7 @@ Projet du module *Cartographie et localisation appliquée à la robotique mobile
 Outils pour exploiter les scans du lidar LD06 : affichage de nuages de points,
 grid map, carte vectorielle, puis (jours 2 et 3) scan matching et SLAM.
 
-Comptes rendus : [jour 1](docs/jour1.md), [jour 2](docs/jour2.md) ([banc d'essai](docs/jour2_benchmark.md)), [journal des erreurs et corrections](docs/journal.md).
+Comptes rendus : [jour 1](docs/jour1.md), [jour 2](docs/jour2.md) ([banc d'essai](docs/jour2_benchmark.md)), [journal des erreurs et corrections](docs/journal.md), [algorithmes expliqués](docs/algorithmes.md).
 
 ## Prérequis
 

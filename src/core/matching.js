@@ -11,8 +11,18 @@
 import { DEG, normalizeAngleDeg } from './pose.js';
 
 /**
- * Champ de distances : pour chaque cellule, distance (m) au point de référence le plus proche,
- * bornée à maxDist. Calculée par une transformée de distance de chanfrein en deux passes.
+ * Champ de distances (« likelihood field ») : une grille qui donne, pour chaque cellule, la
+ * distance (m) au point de référence le plus proche, bornée à maxDist.
+ * Pourquoi : pour noter une pose, il faut la distance de chaque point du scan à la référence.
+ * La chercher parmi des milliers de points de référence à chaque fois serait trop lent ; on la
+ * précalcule une fois sur une grille, puis chaque évaluation n'est plus qu'une lecture de case.
+ * Calcul (transformée de distance de chanfrein, deux passes) :
+ *   1. cellules contenant un point de référence : 0 ; les autres : maxDist ;
+ *   2. passe avant (bas-gauche -> haut-droite) : chaque cellule prend le minimum de sa valeur
+ *      et de (voisin déjà vu + distance au voisin : rés pour un voisin droit, rés·√2 en diagonale) ;
+ *   3. passe arrière (sens inverse) avec les voisins de l'autre côté.
+ * Deux passes suffisent à propager la distance dans toutes les directions (approximation à
+ * quelques % près de la distance euclidienne, largement suffisante ici).
  */
 export class DistanceField {
   constructor(points, { resolution = 0.05, margin = 1, maxDist = 1 } = {}) {
@@ -197,9 +207,21 @@ export class PointHash {
 }
 
 /**
- * ICP point à point : associe chaque point du scan à son plus proche voisin de référence
- * (à moins de maxDist), calcule la transformation rigide optimale en forme close, recommence.
- * La distance d'association diminue au fil des itérations.
+ * ICP point à point (Iterative Closest Point).
+ * À chaque itération :
+ *   1. association : chaque point du scan (transformé avec la pose courante) est apparié au
+ *      point de référence le plus proche, s'il est à moins de `gate` ; `gate` diminue de
+ *      maxDist à minDist au fil des itérations (on accepte d'abord des couples lointains pour
+ *      rattraper l'erreur, puis on ne garde que les couples sûrs) ;
+ *   2. transformation optimale en forme close : on cherche la rotation R(dθ) et la translation t
+ *      qui minimisent Σ |R·Pk + t − Qk|² (Pk : point du scan, Qk : son correspondant).
+ *      Avec les barycentres P̄, Q̄ et les écarts a = Pk − P̄, b = Qk − Q̄ :
+ *        dθ = atan2( Σ (ax·by − ay·bx), Σ (ax·bx + ay·by) )   et   t = Q̄ − R(dθ)·P̄
+ *      (le numérateur mesure la « torsion » moyenne entre les deux nuages, le dénominateur
+ *      leur alignement) ;
+ *   3. on compose cette correction avec la pose courante et on recommence jusqu'à ce que la
+ *      pose ne bouge plus.
+ * Précis et rapide, mais local : il faut partir assez près de la bonne pose.
  */
 export function icp(refPoints, localPts, init, { iterations = 40, maxDist = 0.3, minDist = 0.08, hash = null } = {}) {
   const index = hash ?? new PointHash(refPoints, maxDist);

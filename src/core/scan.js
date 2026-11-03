@@ -20,7 +20,7 @@ const POSE_RE = /x\s*=\s*(-?\d+(?:\.\d+)?)\s*m?\s*,\s*y\s*=\s*(-?\d+(?:\.\d+)?)\
 
 /** Filtre par défaut des points aberrants. */
 export const DEFAULT_FILTER = Object.freeze({
-  minRange: 0.05, // m : en dessous, reflet sur le robot ou mesure invalide
+  minRange: 0.15, // m : en dessous, reflets sur le robot lui-même (vus jusqu'à 10 cm sur le robot réel)
   maxRange: 12, // m : portée max du LD06
   minIntensity: 0, // 0..255 : à régler d'après les données réelles
 });
@@ -84,16 +84,16 @@ function medianNeighbourDistance(a, b) {
  * - La librairie calcule y = -d·sin(angle) alors que l'angle est déjà antihoraire
  *   (ld06.cpp, l.164) : le nuage Teleplot est en miroir. On rétablit y = +d·sin(angle),
  *   ce qui redonne exactement les points de l'export RobotControl.
+ * - Par défaut seule la dernière ligne complète est gardée (la dernière ligne est souvent
+ *   coupée : seules les lignes terminées par |xy sont lues).
  * - Le programme de test envoie chaque tour en texte à 115200 bauds, plus lentement que le
- *   lidar ne produit ses données : des trames sont perdues et chaque tour a des trous, à des
- *   endroits différents d'un tour à l'autre. Le robot étant immobile, on fusionne les
- *   dernières lignes complètes (jusqu'à `mergeLines`), en s'arrêtant dès qu'une ligne a été
- *   prise depuis une autre position (écart médian aux points du dernier tour > `sameViewMax`).
- * - La dernière ligne est souvent coupée par le copier-coller : seules les lignes terminées
- *   par |xy sont lues.
+ *   lidar ne produit ses données : des trames sont perdues et chaque tour a des trous.
+ *   Avec mergeLines > 1, les dernières lignes sont fusionnées tant que l'écart médian au
+ *   dernier tour reste sous `sameViewMax`. Désactivé par défaut : une petite rotation du robot
+ *   entre deux tours garde un écart médian faible mais dédouble les murs lointains.
  */
 export function parseTeleplot(text, name = 'scan', options = {}) {
-  const { mergeLines = 4, sameViewMax = 0.05 } = options;
+  const { mergeLines = 1, sameViewMax = 0.05 } = options;
   const lines = [...text.matchAll(/>\s*([\w-]+)\s*:([^|>]*)\|xy/g)];
   const scan = { name, pose: { x: 0, y: 0, theta: 0 }, poseFound: false, points: [], format: 'teleplot', comments: [] };
   if (!lines.length) return scan;

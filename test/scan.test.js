@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseScanCSV, scanToLocalXY, scanToWorldXY, serializeScanCSV, validPoints } from '../src/core/scan.js';
+import { parseScanCSV, parseTeleplot, scanToLocalXY, scanToWorldXY, serializeScanCSV, validPoints } from '../src/core/scan.js';
 
 const close = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);
 
@@ -99,7 +99,13 @@ test('Teleplot : la dernière ligne coupée par le copier-coller est ignorée', 
   close(s.points[0].r, 1);
 });
 
-test('Teleplot : les tours pris depuis la même position sont fusionnés, pas ceux d\'avant un déplacement', async () => {
+test('Teleplot : par défaut, seul le dernier tour complet est gardé', () => {
+  const s = parseScanCSV('>lidar:1000:0;0:-1000;|xy\n>lidar:2000:0;0:-2000;-2000:0;|xy\n', 'tp');
+  assert.equal(s.points.length, 3);
+  close(s.points[0].r, 2);
+});
+
+test('Teleplot (option mergeLines) : les tours pris depuis la même position sont fusionnés, pas ceux d\'avant un déplacement', async () => {
   const { rectangle, simulateScan } = await import('../src/core/sim.js');
   const room = rectangle(0, 0, 5, 4);
   const here = { x: 2, y: 1.5, theta: 0 };
@@ -110,7 +116,7 @@ test('Teleplot : les tours pris depuis la même position sont fusionnés, pas ce
   const lossy = (seed, lo) => simulateScan(room, here, { seed }).points.filter((p) => hit(p) && !(p.angle >= lo && p.angle < lo + 90));
   const tours = [lossy(2, 0), lossy(3, 120), lossy(4, 240)];
   const text = [before, ...tours].map(teleplotLine).join('\n') + '\n>lidar:12:3';
-  const s = parseScanCSV(text, 'tp');
+  const s = parseTeleplot(text, 'tp', { mergeLines: 4 });
   assert.equal(s.points.length, tours.reduce((n, t) => n + t.length, 0));
   assert.match(s.comments[0], /3 tour\(s\) fusionné\(s\) sur 4/);
   // l'union couvre tout le tour : plus aucun secteur vide de plus de 5°

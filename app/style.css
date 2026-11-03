@@ -151,6 +151,11 @@ button:disabled { opacity: 0.5; cursor: default; }
   pointer-events: none;
 }
 
+.loc-table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 11.5px; color: var(--ink); }
+.loc-table th, .loc-table td { text-align: right; padding: 3px 4px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.loc-table th:first-child, .loc-table td:first-child { text-align: left; }
+.loc-table tr.best td { font-weight: 600; }
+
 dialog {
   width: min(560px, calc(100vw - 32px));
   border: 1px solid var(--line);

@@ -20,18 +20,20 @@
         <button id="btnPaste" title="Coller la sortie du moniteur série (programme de test, lignes >lidar:...)">Coller un scan</button>
         <button id="btnSim">Jeu simulé</button>
       </div>
-      <p class="hint">Programme de test du prof : dans le moniteur série, Ctrl+A puis Ctrl+C, puis
-        <strong>Ctrl+V sur la carte</strong> (ou « Coller un scan »). Le dernier tour complet devient un nouveau scan.</p>
+      <p class="hint">Robot branché en USB : lancer <code>python scripts/live.py</code>, le scan s'affiche en
+        temps réel (en noir) à la pose du scan sélectionné. <strong>Espace</strong> l'ajoute à la liste.</p>
       <div class="usb">
         <div class="row">
-          <button id="usbConnect">Connecter le robot (USB)</button>
-          <button id="usbCapture" disabled>Capturer un scan</button>
+          <button id="liveAdd" class="primary-btn" disabled>Ajouter ce scan (Espace)</button>
+          <label class="check"><input type="checkbox" id="showLive" checked> Temps réel</label>
         </div>
-        <p class="hint" id="usbStat">Programme firmware/ESP32_LD06_Capture sur l'ESP32, moniteur série Arduino fermé, Chrome ou Edge.</p>
+        <label class="check"><input type="checkbox" id="liveAlign" checked> Recaler automatiquement chaque scan ajouté</label>
+        <p class="hint" id="liveStat">Connexion au robot…</p>
       </div>
       <ul id="scanList"></ul>
       <p class="empty" id="scanEmpty">Aucun scan. Capturer, ouvrir des CSV (RobotControl, MapTool, capture série) ou les déposer sur la carte.</p>
       <div class="row">
+        <button id="btnAlign" class="primary-btn" title="Le premier scan est la référence. Les scans en (0, 0, 0) sont placés automatiquement, puis tous sont affinés au centimètre.">Recaler automatiquement</button>
         <button id="btnSaveAll" title="Chaque scan avec sa pose actuelle, plus poses.csv">Enregistrer tous les scans…</button>
       </div>
 
@@ -55,7 +57,7 @@
     <section>
       <h2>Filtre des points</h2>
       <div class="grid3">
-        <label>r min (m)<input type="number" id="fMin" step="0.01" value="0.05"></label>
+        <label>r min (m)<input type="number" id="fMin" step="0.01" value="0.15"></label>
         <label>r max (m)<input type="number" id="fMax" step="0.5" value="12"></label>
         <label>Intensité min<input type="number" id="fInt" step="5" value="0"></label>
       </div>
@@ -93,6 +95,8 @@
     <section>
       <h2>Carte vectorielle</h2>
       <label class="check"><input type="checkbox" id="vecAbsence" checked> Gestion des absences (découpe des segments traversés)</label>
+      <label class="inline">Carte propre : segments vus par au moins
+        <input type="number" id="vecMinObs" min="1" step="1" value="1" style="width: 56px"> scan(s)</label>
       <div class="row">
         <button id="vecFromSel">Scan sélectionné → carte</button>
         <button id="vecUpdateSel">Mettre à jour la carte</button>
@@ -110,7 +114,39 @@
     </section>
 
     <section>
+      <h2>Localisation (jour 2)</h2>
+      <label class="inline">Référence
+        <select id="locRef">
+          <option value="grid">Grid map</option>
+          <option value="vector" selected>Carte vectorielle</option>
+          <option value="imported">Carte de référence importée</option>
+          <option value="scan">Scan de référence (le précédent)</option>
+        </select>
+      </label>
+      <label class="inline">Méthode <select id="locMethod"></select></label>
+      <label class="check"><input type="checkbox" id="locExclude" checked> Carte construite sans le scan à localiser</label>
+      <div class="row">
+        <button id="btnLocalize" class="primary-btn">Localiser le scan sélectionné</button>
+        <button id="btnCompare">Comparer les méthodes</button>
+      </div>
+      <p class="hint">Part de la pose actuelle du scan (à placer d'abord à peu près à la main). Fenêtre de recherche
+        ±50 cm, ±20°. « Pose du fichier » annule.</p>
+      <div id="locResult" class="stat"></div>
+    </section>
+
+    <section>
+      <h2>Exports du jour 1</h2>
+      <div class="row">
+        <button id="btnExportDay1" class="primary-btn">Exporter tout le jour 1</button>
+      </div>
+      <p class="hint">7 figures PNG (nuages de points, grid map brute et propre, segments, carte vectorielle
+        brute et propre, plan de la salle) + grid maps (CSV), cartes vectorielles (TXT), fichiers pour MapTool
+        et poses.</p>
+    </section>
+
+    <section>
       <h2>Affichage</h2>
+      <label class="check"><input type="checkbox" id="showClean"> <strong>Vue propre (style MapTool)</strong></label>
       <div class="checks">
         <label class="check"><input type="checkbox" id="showPoints" checked> Points</label>
         <label class="check"><input type="checkbox" id="showRays"> Faisceaux (sélection)</label>
@@ -119,7 +155,7 @@
         <label class="check"><input type="checkbox" id="showVector" checked> Carte vectorielle</label>
         <label class="check"><input type="checkbox" id="showRef" checked> Référence</label>
         <label class="check"><input type="checkbox" id="showMetric" checked> Quadrillage 1 m</label>
-        <label class="check"><input type="checkbox" id="autoRebuild"> Reconstruire les cartes quand une pose change</label>
+        <label class="check"><input type="checkbox" id="autoRebuild" checked> Cartes automatiques (reconstruites à chaque changement)</label>
       </div>
     </section>
   </aside>

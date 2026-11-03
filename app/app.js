@@ -1,9 +1,13 @@
 // Application web : affichage de plusieurs scans, poses modifiables,
 // construction et mise à jour d'une grid map et d'une carte vectorielle.
-import { DEG, normalizeAngleDeg, transformPoints } from '../src/core/pose.js';
+import { DEG, normalizeAngleDeg, poseError, transformPoints } from '../src/core/pose.js';
 import { parseScanCSV, scanToLocalXY, serializeScanCSV, validPoints } from '../src/core/scan.js';
-import { GridMap, gridFromScan, occupancyRGB } from '../src/core/gridmap.js';
+import { GridMap, gridFromScan, occupancyRGB, UNKNOWN_RGB } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
+import { autoAlign, consistency, matchScan } from '../src/core/matching.js';
+import { cleanGrid, cleanVectorMap, findCorners, segmentsNearFloor } from '../src/core/cleanup.js';
+import { gridReference, localize, METHODS, METHODS_BY_REFERENCE, scanReference, vectorReference } from '../src/core/localization.js';
+import { dayOneExports, MAPTOOL, maptoolColor } from './figures.js';
 import { extractSegments } from '../src/core/segmentation.js';
 import { transformSegment } from '../src/core/geometry.js';
 
@@ -95,7 +99,7 @@ function removeScan(entry) {
   if (state.selected === entry) state.selected = null;
   renderScanList();
   renderPoseEditor();
-  draw();
+  poseChanged();
 }
 
 function renderScanList() {
@@ -144,17 +148,60 @@ function renderPoseEditor() {
 }
 
 let rebuildTimer = null;
-/** Une pose ou la visibilité a changé : redessin, et reconstruction des cartes si demandé. */
+/**
+ * Une pose, la visibilité ou la liste des scans a changé : redessin, et reconstruction
+ * automatique de la grid map et de la carte vectorielle (case « Cartes automatiques »).
+ */
 function poseChanged({ final = true } = {}) {
   renderPoseEditor();
   draw();
   if ($('autoRebuild').checked && final) {
     clearTimeout(rebuildTimer);
     rebuildTimer = setTimeout(() => {
-      if (state.grid) buildGridAll(true);
-      if (state.vector) buildVectorAll(true);
-    }, 120);
+      if (!state.scans.some((e) => e.visible)) return;
+      buildGridAll(true);
+      buildVectorAll(true);
+    }, 150);
   }
+}
+
+const tick = () => new Promise((r) => setTimeout(r, 0));
+const visibleItems = () => state.scans.filter((e) => e.visible).map((e) => ({ entry: e, points: local(e).pts, pose: e.pose }));
+
+/** Bouton « Recaler automatiquement » : place puis affine tous les scans visibles (le premier est la référence). */
+async function runAutoAlign() {
+  const items = visibleItems();
+  if (items.length < 2) return toast('Il faut au moins deux scans visibles');
+  $('btnAlign').disabled = true;
+  const before = consistency(items.map((i) => i.points), items.map((i) => i.pose));
+  const t0 = performance.now();
+  const steps = autoAlign(items);
+  let r;
+  while (!(r = steps.next()).done) {
+    const { phase, k, total } = r.value;
+    toast(`Recalage automatique : ${phase} du scan ${k + 1}/${total}…`);
+    await tick();
+  }
+  r.value.forEach((pose, k) => (items[k].entry.pose = pose));
+  const after = consistency(items.map((i) => i.points), r.value);
+  const mean = (a) => Math.round((100 * a.reduce((x, y) => x + y, 0)) / a.length);
+  $('btnAlign').disabled = false;
+  poseChanged();
+  if (!$('autoRebuild').checked) {
+    buildGridAll(true);
+    buildVectorAll(true);
+  }
+  toast(`Recalage terminé en ${((performance.now() - t0) / 1000).toFixed(1)} s : ${mean(before)} % → ${mean(after)} % des points collent aux autres scans`);
+}
+
+/** Recalage d'un scan qui vient d'être capturé, sur les scans déjà présents (fenêtre large). */
+function alignNewScan(entry) {
+  const others = state.scans.filter((e) => e !== entry && e.visible);
+  if (!others.length) return;
+  const ref = others.flatMap((e) => worldPoints(e));
+  const r = matchScan(ref, local(entry).pts, entry.pose);
+  entry.pose = r.pose;
+  return r;
 }
 
 async function loadFiles(files) {
@@ -182,6 +229,7 @@ async function loadFiles(files) {
   if (n) {
     renderScanList();
     fitView();
+    poseChanged();
   }
   draw();
 }
@@ -205,107 +253,80 @@ async function loadSimulated() {
     $('showRef').checked = false;
     renderScanList();
     fitView();
+    poseChanged();
     toast(`${index.scans.length} scans simulés chargés (référence : scene_A.txt, masquée)`);
   } catch (err) {
     toast(`Chargement impossible : ${err.message}`);
   }
 }
 
-// ------------------------------------------------------------------ acquisition USB (Web Serial)
-// Dialogue avec firmware/ESP32_LD06_Capture : 's' demande un scan, renvoyé entre
-// "# LD06 scan ..." et "# end" ; 'i' renvoie une ligne "# info ...".
+// ------------------------------------------------------------------ robot en temps réel
+// Le relais scripts/live.py lit l'ESP32 sur le port USB et diffuse chaque nouveau scan
+// sur /live (Server-Sent Events). Le scan courant est dessiné en continu à la pose du scan
+// sélectionné ; « Ajouter ce scan » (ou Espace) le fige dans la liste.
 
-const usb = { port: null, reader: null, writer: null, loop: null, buffer: '', block: null, waiting: null };
+const live = { source: null, text: null, scan: null, time: 0, status: null };
 
-function usbStatus(msg) {
-  $('usbStat').textContent = msg;
+function liveStatus(msg) {
+  $('liveStat').textContent = msg;
 }
 
-function usbSend(text) {
-  return usb.writer.write(new TextEncoder().encode(text));
-}
-
-async function usbConnect() {
-  if (usb.port) return usbDisconnect();
-  if (!('serial' in navigator)) return toast('Acquisition USB : ouvrir l\'application dans Chrome ou Edge (Web Serial)');
+async function startLive() {
   try {
-    usb.port = await navigator.serial.requestPort();
-    await usb.port.open({ baudRate: 115200 });
-  } catch (err) {
-    usb.port = null;
-    if (err.name !== 'NotFoundError') toast(`Connexion impossible : ${err.message}`);
+    const res = await fetch('/live/status', { cache: 'no-store' });
+    if (!res.ok) throw new Error();
+  } catch {
+    liveStatus('Pas de robot : lancer « python scripts/live.py » (au lieu de node serve.mjs) puis recharger la page.');
     return;
   }
-  usb.writer = usb.port.writable.getWriter();
-  usb.loop = usbReadLoop();
-  $('usbConnect').textContent = 'Déconnecter';
-  $('usbCapture').disabled = false;
-  usbStatus('Connecté, attente du robot…');
-  // L'ESP32 redémarre souvent à l'ouverture du port : on demande l'état après son démarrage.
-  setTimeout(() => usb.writer && usbSend('i'), 2000);
+  live.source = new EventSource('/live');
+  live.source.addEventListener('status', (ev) => {
+    live.status = JSON.parse(ev.data);
+    renderLiveStatus();
+  });
+  live.source.addEventListener('scan', (ev) => {
+    const d = JSON.parse(ev.data);
+    live.text = d.text;
+    live.scan = parseScanCSV(d.text, 'temps réel');
+    const firstScan = live.time === 0;
+    live.time = Date.now();
+    $('liveAdd').disabled = false;
+    renderLiveStatus();
+    if (firstScan && !state.scans.length) fitView();
+    else draw();
+  });
+  live.source.onerror = () => liveStatus('Relais live.py injoignable (arrêté ?), nouvel essai…');
 }
 
-async function usbDisconnect() {
-  try {
-    await usb.reader?.cancel();
-    await usb.loop;
-    usb.writer?.releaseLock();
-    await usb.port?.close();
-  } catch {
-    // port déjà fermé (câble débranché)
+function renderLiveStatus() {
+  const s = live.status;
+  let msg = s ? s.message : 'Connexion au relais…';
+  if (live.scan && s?.connected) {
+    const n = validPoints(live.scan, filterOpts()).length;
+    const tours = live.scan.mergedLines > 1 ? `, ${live.scan.mergedLines} tours fusionnés` : '';
+    msg += ` · ${n} points${tours}`;
   }
-  Object.assign(usb, { port: null, reader: null, writer: null, loop: null, buffer: '', block: null });
-  $('usbConnect').textContent = 'Connecter le robot (USB)';
-  $('usbCapture').disabled = true;
-  usbStatus('Déconnecté');
+  liveStatus(msg);
 }
 
-async function usbReadLoop() {
-  const decoder = new TextDecoder();
-  usb.reader = usb.port.readable.getReader();
-  try {
-    for (;;) {
-      const { value, done } = await usb.reader.read();
-      if (done) break;
-      usb.buffer += decoder.decode(value, { stream: true });
-      let nl;
-      while ((nl = usb.buffer.indexOf('\n')) >= 0) {
-        const line = usb.buffer.slice(0, nl).replace(/\r$/, '');
-        usb.buffer = usb.buffer.slice(nl + 1);
-        onUsbLine(line);
-      }
-    }
-  } catch (err) {
-    toast(`Liaison USB interrompue : ${err.message}`);
-  } finally {
-    usb.reader.releaseLock();
-  }
+/** Pose à laquelle le scan en temps réel est dessiné : celle du scan sélectionné (point de départ du recalage). */
+function livePose() {
+  return state.selected ? state.selected.pose : { x: 0, y: 0, theta: 0 };
 }
 
-function onUsbLine(line) {
-  if (line.startsWith('# LD06 scan')) {
-    usb.block = [line];
-  } else if (usb.block) {
-    usb.block.push(line);
-    if (line.startsWith('# end')) {
-      const text = usb.block.join('\n');
-      usb.block = null;
-      usb.waiting?.resolve(text);
-    }
-  } else if (line.startsWith('# error')) {
-    usb.waiting?.reject(new Error(line.slice(8)));
-  } else if (line.startsWith('# LD06 ready')) {
-    usbStatus('Robot prêt');
-  } else if (line.startsWith('# info')) {
-    usbStatus(line.includes('scans=0') ? `Le lidar n'envoie aucun scan : ${line.slice(7)}` : `Robot prêt : ${line.slice(7)}`);
-  } else if (line.startsWith('# raw')) {
-    usbStatus(`Diagnostic : ${line.slice(6)}`);
-  }
-  // autres lignes (messages de démarrage de l'ESP32) : ignorées
+/** Fige le scan en temps réel : il rejoint la liste avec sa propre couleur. */
+function liveCapture() {
+  if (!live.text) return toast('Aucun scan reçu du robot pour l\'instant');
+  const scan = parseScanCSV(live.text, captureName());
+  const entry = addLiveScan(scan);
+  const n = validPoints(scan, filterOpts()).length;
+  const r = $('liveAlign').checked ? alignNewScan(entry) : null;
+  poseChanged();
+  toast(r ? `${scan.name} ajouté et recalé : ${n} points, ${Math.round(r.inliers * 100)} % collent aux scans précédents` : `${scan.name} ajouté : ${n} points`);
 }
 
 /**
- * Ajoute un scan acquis à l'instant (capture USB ou collage). Le robot a peu bougé
+ * Ajoute un scan acquis à l'instant (temps réel ou collage). Le robot a peu bougé
  * depuis le scan précédent : le nouveau part de la pose du scan sélectionné, il ne
  * reste qu'à le recaler. Le premier scan reste en (0, 0, 0) et définit le repère.
  */
@@ -339,28 +360,6 @@ function captureName() {
   return `scan_${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.csv`;
 }
 
-async function usbCapture() {
-  if (!usb.writer || usb.waiting) return;
-  $('usbCapture').disabled = true;
-  usbStatus('Capture en cours…');
-  let timer;
-  try {
-    const text = await new Promise((resolve, reject) => {
-      usb.waiting = { resolve, reject };
-      timer = setTimeout(() => reject(new Error('pas de réponse du robot (programme ESP32_LD06_Capture téléversé ?)')), 5000);
-      usbSend('s').catch(reject);
-    });
-    const scan = parseScanCSV(text, captureName());
-    addLiveScan(scan);
-    usbStatus(`${scan.name} : ${validPoints(scan, filterOpts()).length} points valides · ${scan.comments[0].replace('LD06 scan ', '')}`);
-  } catch (err) {
-    usbStatus(`Échec de la capture : ${err.message}`);
-  } finally {
-    clearTimeout(timer);
-    usb.waiting = null;
-    $('usbCapture').disabled = !usb.writer;
-  }
-}
 
 /** Enregistre chaque scan avec sa pose actuelle, plus un récapitulatif poses.csv. */
 async function saveAll() {
@@ -370,15 +369,27 @@ async function saveAll() {
     name: 'poses.csv',
     text: ['scan,x_m,y_m,theta_deg', ...state.scans.map((e) => `${e.name},${e.pose.x.toFixed(4)},${e.pose.y.toFixed(4)},${e.pose.theta.toFixed(2)}`)].join('\n') + '\n',
   });
+  await saveFiles(files);
+}
+
+/**
+ * Écrit des fichiers { name, text | blob } : dans un dossier choisi (Chrome, Edge) ou en
+ * téléchargements successifs (Firefox).
+ */
+async function saveFiles(files) {
   if (!window.showDirectoryPicker) {
-    for (const f of files) download(f.name, f.text, 'text/csv');
+    for (const f of files) {
+      download(f.name, f.blob ?? f.text, 'text/plain');
+      await new Promise((r) => setTimeout(r, 150)); // Firefox ignore des téléchargements trop rapprochés
+    }
+    toast(`${files.length} fichiers téléchargés`);
     return;
   }
   try {
     const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
     for (const f of files) {
       const w = await (await dir.getFileHandle(f.name, { create: true })).createWritable();
-      await w.write(f.text);
+      await w.write(f.blob ?? f.text);
       await w.close();
     }
     toast(`${files.length} fichiers enregistrés dans « ${dir.name} »`);
@@ -402,6 +413,7 @@ function setGrid(g) {
   } else {
     $('gridStat').textContent = '';
   }
+  refreshClean();
   draw();
 }
 
@@ -450,6 +462,7 @@ function vecParams() {
 function setVector(m, info = '') {
   state.vector = m;
   $('vecStat').textContent = m ? `${m.segments.length} segments · ${m.scanCount} scan(s)${info ? ' · ' + info : ''}` : '';
+  refreshClean({ grid: false });
   draw();
 }
 
@@ -483,11 +496,15 @@ const wy = (py) => state.view.y - (py - H() / 2) / state.view.scale;
 function fitView() {
   const xs = [];
   const ys = [];
-  for (const e of state.scans.filter((s) => s.visible)) {
-    for (const p of worldPoints(e)) {
+  const pointSets = state.scans.filter((s) => s.visible).map(worldPoints);
+  if (!pointSets.length && live.scan) pointSets.push(livePoints());
+  for (const pts of pointSets) {
+    for (const p of pts) {
       xs.push(p.x);
       ys.push(p.y);
     }
+  }
+  for (const e of state.scans.filter((s) => s.visible)) {
     xs.push(e.pose.x);
     ys.push(e.pose.y);
   }
@@ -511,9 +528,34 @@ function render() {
   frame = 0;
   const dpr = window.devicePixelRatio || 1;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = '#fbfbf9';
+  // Avec une grid map affichée, le fond prend la couleur « inconnu » : les zones libres
+  // (blanches) ressortent au lieu de se confondre avec un fond blanc.
+  ctx.fillStyle = $('showGrid').checked && state.grid ? `rgb(${UNKNOWN_RGB.join(',')})` : '#fbfbf9';
   ctx.fillRect(0, 0, W(), H());
   const s = state.view.scale;
+
+  // Vue propre (style MapTool) : fond ardoise, sol blanc, murs noirs, segments rouges.
+  const clean = $('showClean').checked && state.gridClean;
+  if (clean) {
+    ctx.fillStyle = MAPTOOL.background;
+    ctx.fillRect(0, 0, W(), H());
+    const g = state.gridClean;
+    state.gridCleanImage ??= cleanGridImage(g);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(state.gridCleanImage, sx(g.originX), sy(g.originY + g.height * g.res), g.width * g.res * s, g.height * g.res * s);
+    if ($('showMetric').checked) drawMetricGrid();
+    if (state.vectorClean) {
+      ctx.strokeStyle = MAPTOOL.segment;
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      strokeSegments(state.vectorClean.segments);
+    }
+    drawCorners();
+    for (const e of state.scans.filter((v) => v.visible)) drawRobot(e, e === state.selected);
+    drawLive(s);
+    renderStatus();
+    return;
+  }
 
   if ($('showGrid').checked && state.grid) {
     const g = state.grid;
@@ -577,7 +619,195 @@ function render() {
   }
 
   for (const e of visible) drawRobot(e, e === sel);
+  drawLive(s);
   renderStatus();
+}
+
+/** Scan en temps réel : en noir, à la pose du scan sélectionné (cyan en vue propre, comme le scan de MapTool). */
+function drawLive(s) {
+  if (!$('showLive').checked || !live.scan) return;
+  const stale = Date.now() - live.time > 3000; // plus de nouveau scan depuis 3 s
+  const clean = $('showClean').checked && state.gridClean;
+  ctx.fillStyle = clean ? (stale ? 'rgba(6,182,212,0.4)' : '#06b6d4') : stale ? 'rgba(29,35,39,0.3)' : '#1d2327';
+  const size = Math.max(2.5, Math.min(4.5, s / 35));
+  for (const p of livePoints()) ctx.fillRect(sx(p.x) - size / 2, sy(p.y) - size / 2, size, size);
+  drawRobot({ pose: livePose(), color: '#ffffff' }, true);
+}
+
+/** Image de la grid map propre aux couleurs MapTool (inconnu transparent). */
+function cleanGridImage(g) {
+  const off = document.createElement('canvas');
+  off.width = g.width;
+  off.height = g.height;
+  const octx = off.getContext('2d');
+  const img = octx.createImageData(g.width, g.height);
+  const color = maptoolColor(g);
+  for (let j = 0; j < g.height; j++) {
+    for (let i = 0; i < g.width; i++) {
+      const rgb = color(g.index(i, j));
+      if (!rgb) continue;
+      const o = 4 * ((g.height - 1 - j) * g.width + i);
+      img.data.set(rgb, o);
+      img.data[o + 3] = 255;
+    }
+  }
+  octx.putImageData(img, 0, 0);
+  return off;
+}
+
+/** Versions propres des cartes (recalculées à chaque reconstruction). */
+function refreshClean({ grid = true } = {}) {
+  if (grid) {
+    state.gridCleanImage = null;
+    state.gridClean = state.grid ? cleanGrid(state.grid, state.scans.filter((e) => e.visible).map((e) => e.pose)) : null;
+  }
+  state.vectorClean = null;
+  if (state.vector && state.gridClean) {
+    const cv = cleanVectorMap(state.vector.segments, { minObservations: Math.max(1, Number($('vecMinObs').value) || 1) });
+    cv.segments = segmentsNearFloor(cv.segments, state.gridClean);
+    state.vectorClean = cv;
+    state.corners = findCorners(cv.segments);
+  }
+}
+
+/** Coins (points d'intérêt) de la carte vectorielle propre : losanges orange, comme le tracé en cours de MapTool. */
+function drawCorners() {
+  if (!state.corners) return;
+  ctx.fillStyle = '#f59e0b';
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1.5;
+  for (const c of state.corners) {
+    const x = sx(c.x);
+    const y = sy(c.y);
+    ctx.beginPath();
+    ctx.moveTo(x, y - 6);
+    ctx.lineTo(x + 6, y);
+    ctx.lineTo(x, y + 6);
+    ctx.lineTo(x - 6, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
+// ------------------------------------------------------------------ localisation (jour 2)
+
+/** Méthodes proposées selon la référence choisie. */
+function fillMethods() {
+  const kind = $('locRef').value === 'imported' ? 'vector' : $('locRef').value;
+  const sel = $('locMethod');
+  const prev = sel.value;
+  sel.replaceChildren(...METHODS_BY_REFERENCE[kind].map((m) => new Option(METHODS[m].label, m)));
+  if (METHODS_BY_REFERENCE[kind].includes(prev)) sel.value = prev;
+}
+
+/**
+ * Référence de localisation pour le scan `target` : grid map ou carte vectorielle construites
+ * avec les autres scans visibles (ou avec tous, case décochée), carte importée, ou scan précédent.
+ */
+function locReference(target) {
+  const kind = $('locRef').value;
+  if (kind === 'imported') {
+    if (!state.reference) throw new Error('Aucune carte importée : bouton « Référence… » de la carte vectorielle');
+    return vectorReference(state.reference.segments);
+  }
+  const visible = state.scans.filter((e) => e.visible);
+  if (kind === 'scan') {
+    const k = visible.indexOf(target);
+    const ref = k > 0 ? visible[k - 1] : visible.find((e) => e !== target);
+    if (!ref) throw new Error('Il faut un autre scan visible comme référence');
+    return scanReference(worldPoints(ref));
+  }
+  const used = $('locExclude').checked ? visible.filter((e) => e !== target) : visible;
+  if (!used.length) throw new Error("Il faut d'autres scans visibles pour construire la carte");
+  if (kind === 'grid') {
+    const [first, ...rest] = used;
+    const g = gridFromScan(first.scan, first.pose, gridParams(), filterOpts(), { flipAngles: first.flip });
+    for (const e of rest) g.integrateScan(...integrateOpts(e));
+    return gridReference(g);
+  }
+  const m = new VectorMap([], { ...vecParams(), absence: false });
+  for (const e of used) m.integrateScan(...integrateOpts(e));
+  return vectorReference(m.segments);
+}
+
+/** Tableau des résultats : déplacement depuis la pose initiale, écart à la pose du fichier, temps. */
+function showLocResults(results, init, entry) {
+  const ref = entry.scan.poseFound ? entry.filePose : null;
+  const best = results.reduce((a, b) => (b.inliers > a.inliers ? b : a));
+  const rows = results.map((r) => {
+    const moved = poseError(r.pose, init);
+    const err = ref ? poseError(r.pose, ref) : null;
+    return `<tr class="${r === best && results.length > 1 ? 'best' : ''}"><td>${METHODS[r.method].label}</td>
+      <td>${(moved.dist * 100).toFixed(1)} cm / ${moved.angle.toFixed(1)}°</td>
+      ${ref ? `<td>${(err.dist * 100).toFixed(1)} cm / ${err.angle.toFixed(2)}°</td>` : ''}
+      <td>${Math.round(r.inliers * 100)} %</td><td>${r.time.toFixed(0)} ms</td></tr>`;
+  });
+  $('locResult').innerHTML = `<table class="loc-table"><tr><th>Méthode</th><th>Correction</th>${ref ? '<th>Écart pose fichier</th>' : ''}<th>Points sur la carte</th><th>Temps</th></tr>${rows.join('')}</table>`;
+}
+
+function runLocalize() {
+  const e = requireSelection();
+  if (!e) return;
+  let ref;
+  try {
+    ref = locReference(e);
+  } catch (err) {
+    return toast(err.message);
+  }
+  const init = { ...e.pose };
+  const r = localize(ref, local(e).pts, init, $('locMethod').value);
+  e.pose = r.pose;
+  poseChanged();
+  showLocResults([r], init, e);
+  toast(`${e.name} localisé (${METHODS[r.method].label}) : ${Math.round(r.inliers * 100)} % des points sur la carte`);
+}
+
+/** Toutes les méthodes depuis la même pose initiale ; la pose du scan n'est pas modifiée. */
+async function runCompare() {
+  const e = requireSelection();
+  if (!e) return;
+  let ref;
+  try {
+    ref = locReference(e);
+  } catch (err) {
+    return toast(err.message);
+  }
+  const kind = $('locRef').value === 'imported' ? 'vector' : $('locRef').value;
+  const init = { ...e.pose };
+  const results = [];
+  for (const m of METHODS_BY_REFERENCE[kind]) {
+    toast(`Comparaison : ${METHODS[m].label}…`);
+    await tick();
+    results.push(localize(ref, local(e).pts, init, m));
+  }
+  showLocResults(results, init, e);
+  toast('Comparaison terminée (pose du scan inchangée)');
+}
+
+/** Bouton « Exporter tout le jour 1 » : figures brutes et propres, cartes, fichiers MapTool, poses. */
+async function exportDayOne() {
+  const vis = state.scans.filter((e) => e.visible);
+  if (!vis.length) return toast('Aucun scan visible à exporter');
+  if (!state.grid) buildGridAll(true);
+  if (!state.vector) buildVectorAll(true);
+  refreshClean();
+  toast('Préparation des figures…');
+  await tick();
+  const files = await dayOneExports({
+    scans: vis.map((e) => ({ name: e.name, color: e.color, pose: e.pose, points: worldPoints(e), segments: worldSegments(e) })),
+    grid: state.grid,
+    gridClean: state.gridClean,
+    vector: state.vector,
+    vectorClean: state.vectorClean,
+    corners: state.corners ?? [],
+  });
+  await saveFiles(files);
+}
+
+/** Points du scan en temps réel, dans le repère monde (à la pose du scan sélectionné). */
+function livePoints() {
+  return live.scan ? transformPoints(scanToLocalXY(live.scan, filterOpts()), livePose()) : [];
 }
 
 function drawMetricGrid() {
@@ -733,8 +963,14 @@ canvas.addEventListener('wheel', (ev) => {
 }, { passive: false });
 
 window.addEventListener('keydown', (ev) => {
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName) || $('pasteDialog').open) return;
+  if (ev.key === ' ' && live.scan) {
+    ev.preventDefault();
+    liveCapture();
+    return;
+  }
   const e = state.selected;
-  if (!e || ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+  if (!e) return;
   const d = ev.shiftKey ? 0.1 : 0.01;
   const r = ev.shiftKey ? 5 : 0.5;
   const k = ev.key.toLowerCase();
@@ -775,8 +1011,16 @@ $('fileScans').onchange = (ev) => {
   ev.target.value = '';
 };
 $('btnSim').onclick = loadSimulated;
-$('usbConnect').onclick = usbConnect;
-$('usbCapture').onclick = usbCapture;
+$('liveAdd').onclick = liveCapture;
+$('btnAlign').onclick = runAutoAlign;
+$('btnExportDay1').onclick = exportDayOne;
+$('locRef').onchange = fillMethods;
+$('btnLocalize').onclick = runLocalize;
+$('btnCompare').onclick = runCompare;
+$('vecMinObs').onchange = () => {
+  refreshClean({ grid: false });
+  draw();
+};
 $('btnSaveAll').onclick = saveAll;
 $('btnPaste').onclick = () => {
   $('pasteText').value = '';
@@ -795,9 +1039,6 @@ document.addEventListener('paste', (ev) => {
   if (!text) return;
   ev.preventDefault();
   addPastedText(text);
-});
-navigator.serial?.addEventListener('disconnect', (ev) => {
-  if (ev.target === usb.port) usbDisconnect();
 });
 $('btnFit').onclick = fitView;
 $('btnShot').onclick = () => canvas.toBlob((b) => download('capture.png', b));
@@ -911,10 +1152,12 @@ $('refImport').onchange = async (ev) => {
   draw();
 };
 
-for (const id of ['showPoints', 'showRays', 'showSegments', 'showGrid', 'showVector', 'showRef', 'showMetric']) {
+for (const id of ['showPoints', 'showRays', 'showSegments', 'showGrid', 'showVector', 'showRef', 'showMetric', 'showLive', 'showClean']) {
   $(id).addEventListener('change', draw);
 }
 
 window.addEventListener('resize', resize);
 resize();
 renderScanList();
+fillMethods();
+startLive();

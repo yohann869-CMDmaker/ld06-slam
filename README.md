@@ -160,8 +160,8 @@ Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
   150 ms, arrêt seul 0,4 s après la dernière). Le SLAM tourne en continu (5 à 6 scans par seconde,
   robot en mouvement) avec, comme odométrie, la vitesse estimée × la durée d'appui, étalonnée sur
   des segments de 15 cm ou 25°. Curseur de vitesse des moteurs (route `/speed` du programme
-  `firmware/ESP32_RobotWifi`). Arrêt automatique si un obstacle est trop proche dans la direction du
-  mouvement ou si le SLAM se perd. En USB (robot poussé à la main), l'appli affiche la pose, le
+  `firmware/ESP32_RobotWifi`). C'est l'utilisateur qui guide : pas d'arrêt automatique devant un
+  obstacle (un avertissement si le SLAM se perd). En USB (robot poussé à la main), l'appli affiche la pose, le
   dernier pas et « trop vite » au-delà de 35 cm ou 15° par scan.
 - **Exploration autonome** (bonus) : **Exploration simulée** (salle de classe ou trois pièces) montre le
   robot qui part sans carte et va seul vers les frontières entre le connu et l'inconnu ; **Explorer

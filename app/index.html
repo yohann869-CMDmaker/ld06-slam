@@ -230,8 +230,8 @@
       <p class="hint">USB : programme <code>firmware/ESP32_RobotUSB</code>, lancer <code>python scripts/live.py</code> et
         ouvrir l'appli à son adresse. Wi-Fi : programme <code>firmware/ESP32_RobotWifi</code>, <code>node serve.mjs</code>.
         Le robot roule tant que la touche ou le bouton est maintenu, et s'arrête dès qu'on le lâche
-        (et seul après 0,4 s sans ordre). Le SLAM tourne en continu : rouler lentement, tourner doucement. Arrêt
-        automatique si un obstacle est trop proche ou si le SLAM se perd. <strong>Échap</strong> : arrêt.</p>
+        (et seul après 0,4 s sans ordre). Le SLAM tourne en continu : rouler lentement, tourner doucement. C'est
+        vous qui guidez : pas d'arrêt automatique devant un obstacle. <strong>Échap</strong> : arrêt.</p>
       <h3>Exploration autonome</h3>
       <p class="hint">Le robot part sans carte : à chaque pas, scan, SLAM, puis il va vers la frontière la plus
         proche entre le connu et l'inconnu (vert), par le chemin le plus court (orange), loin des obstacles.

@@ -2,7 +2,7 @@
 // construction et mise à jour d'une grid map et d'une carte vectorielle.
 import { composePoses, DEG, normalizeAngleDeg, poseError, transformPoints } from '../src/core/pose.js';
 import { looksElevated, parseRobotBinary, parseScanCSV, scanToLocalXY, serializeScanCSV, setElevated, validPoints } from '../src/core/scan.js';
-import { commandMotion, commandRequest, DEFAULT_EXPLORE, Explorer, freeAhead, simulateExploration, updateSpeeds } from '../src/core/explore.js';
+import { commandMotion, commandRequest, Explorer, simulateExploration, updateSpeeds } from '../src/core/explore.js';
 import { GridMap, gridFromScan, occupancyRGB, UNKNOWN_RGB } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { autoAlign, consistency, matchScan } from '../src/core/matching.js';
@@ -1216,7 +1216,6 @@ function slamLiveStep() {
     const r = slam.addScan(live.scan, driving ? takeDriveOdom() : null, first);
     state.slamLivePose = r.pose;
     if (driving) {
-      wifi.lastScan = live.scan; // pour la sécurité (obstacle dans la direction du mouvement)
       afterDriveScan(r, slam);
     }
     // déplacement depuis le scan précédent, mesuré par le lidar : il doit rester dans la fenêtre de
@@ -1245,7 +1244,7 @@ function slamLiveStep() {
 function resetSlam() {
   Object.assign(state, { slam: null, slamTrack: null, slamLivePose: null });
   Object.assign(explo, { plan: null, truth: null, scene: null });
-  Object.assign(wifi, { odom: null, lastCmd: null, prevPose: null, lastScan: null });
+  Object.assign(wifi, { odom: null, lastCmd: null, prevPose: null });
   Object.assign(teleop, { odom: { ...ZERO }, calib: null, lost: false });
   for (const e of state.scans) delete e.slamIndex;
   $('slamStat').textContent = 'SLAM réinitialisé : le prochain scan en direct fixe le repère (à la pose du scan sélectionné).';
@@ -1371,7 +1370,7 @@ async function robotGet(path, binary = false) {
 // Robot en Wi-Fi : un pas = (commande →) scan → SLAM. Le déplacement commandé sert d'odométrie
 // (prédiction du SLAM), et le déplacement mesuré par le SLAM corrige les vitesses du robot
 // (étalonnage : le robot n'a pas de codeurs, seule la durée des commandes est connue).
-const wifi = { odom: null, lastCmd: null, prevPose: null, busy: false, speeds: null, lastScan: null };
+const wifi = { odom: null, lastCmd: null, prevPose: null, busy: false, speeds: null };
 
 function robotSpeeds() {
   wifi.speeds = { linear: Number($('robotLin').value), angular: Number($('robotAng').value), lateral: wifi.speeds?.lateral ?? 0.2 };
@@ -1395,7 +1394,6 @@ async function wifiScanStep() {
     }
   }
   wifi.odom = null;
-  wifi.lastScan = scan;
   if (r.keyframe) {
     const entry = addScan(scan);
     entry.pose = { ...r.pose };
@@ -1421,26 +1419,11 @@ async function wifiMove(command) {
 }
 
 const fmtPose = (p) => `(${p.x.toFixed(2)} ; ${p.y.toFixed(2)} ; ${p.theta.toFixed(0)}°)`;
-/**
- * Sécurité : distance libre dans la direction du mouvement, d'après le dernier scan (couloir de la
- * largeur du robot) ; le mouvement est raccourci, ou refusé (null) s'il reste moins de 5 cm.
- */
-function clampToFree(command) {
-  if (command.kind === 'rotate' || !wifi.lastScan) return command;
-  const dir = command.kind === 'strafe' ? (command.distance >= 0 ? 90 : -90) : command.distance >= 0 ? 0 : 180;
-  const c = Math.cos(-dir * DEG);
-  const sn = Math.sin(-dir * DEG);
-  const pts = scanToLocalXY(wifi.lastScan, filterOpts()).map((p) => ({ x: c * p.x - sn * p.y, y: sn * p.x + c * p.y }));
-  const { robotRadius, clearance } = DEFAULT_EXPLORE;
-  const free = freeAhead(pts, robotRadius) - robotRadius - clearance;
-  const d = Math.min(Math.abs(command.distance), free);
-  return d < 0.05 ? null : { ...command, distance: Math.sign(command.distance) * d };
-}
-
 // ------------------------------------------------------------------ pilotage continu (Wi-Fi)
 // Le robot roule TANT QUE la touche (ou le bouton) est maintenue : l'appli renvoie la commande
 // toutes les 150 ms, et le robot s'arrête seul 0,4 s après la dernière (touche lâchée, Wi-Fi
-// perdu). Pendant ce temps le SLAM tourne en continu (4 à 5 scans par seconde, robot en mouvement) :
+// perdu). C'est l'utilisateur qui guide : pas d'arrêt automatique devant un obstacle ni quand le SLAM
+// se perd (un avertissement seulement). Pendant ce temps le SLAM tourne en continu (4 à 5 scans par seconde, robot en mouvement) :
 // entre deux scans le robot ne bouge que de quelques centimètres, le suivi ne décroche pas.
 // Odométrie : vitesse estimée × durée d'appui, intégrée entre deux scans ; elle s'étalonne sur des
 // segments d'au moins 15 cm ou 25° d'un même mouvement, d'après le déplacement mesuré par le SLAM.
@@ -1512,10 +1495,6 @@ function sendDrive() {
 function pressDrive(id) {
   if (teleop.active?.id === id || explo.running) return;
   const mv = { ...DRIVE[id], id };
-  if (mv.kind !== 'rotate' && !clampToFree({ kind: mv.kind, distance: mv.sign * 0.3 })) {
-    toast('Obstacle trop proche dans cette direction');
-    return;
-  }
   if (!teleop.running) startTeleop();
   integrateDrive();
   // nouveau segment d'étalonnage si le type de mouvement change
@@ -1558,16 +1537,8 @@ function afterDriveScan(r, slam) {
     $('robotAng').value = sp.angular.toFixed(0);
     teleop.calib = { kind: cal.kind, amount: 0, start: { ...r.pose } };
   } else if (cal && !cal.start) cal.start = { ...r.pose };
-  // sécurité : obstacle dans la direction du mouvement, ou SLAM perdu -> arrêt
-  const mv = teleop.active;
-  if (mv && mv.kind !== 'rotate' && !clampToFree({ kind: mv.kind, distance: mv.sign * 0.3 })) {
-    releaseDrive();
-    toast('Obstacle trop proche : robot arrêté');
-  }
-  if (r.mode === 'perdu' && !teleop.lost) {
-    releaseDrive();
-    toast('SLAM perdu : robot arrêté. Revenir doucement vers la zone connue, ou ralentir');
-  }
+  // c'est l'utilisateur qui guide le robot : pas d'arrêt automatique, un simple avertissement
+  if (r.mode === 'perdu' && !teleop.lost) toast('SLAM perdu : revenir doucement vers la zone connue, ou ralentir');
   teleop.lost = r.mode === 'perdu';
   teleop.count++;
   const now = performance.now();

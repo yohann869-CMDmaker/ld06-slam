@@ -166,16 +166,22 @@
 
     <section>
       <h2>SLAM (jour 3)</h2>
+      <h3>Sur des scans enregistrés</h3>
       <div class="row">
-        <button id="btnSlam" class="primary-btn" title="Dans l'ordre de la liste, sans les poses manuelles : le premier scan fixe le repère">SLAM sur les scans visibles</button>
+        <button id="btnSlam" class="primary-btn" title="Dans l'ordre de la liste : le premier scan fixe le repère">SLAM sur les scans visibles</button>
         <button id="btnSlamReset">Réinitialiser</button>
       </div>
-      <label class="check" title="Le déplacement entre les poses actuelles de deux scans successifs sert de prédiction (comme l'odométrie du robot) et d'a priori pour la relocalisation"><input type="checkbox" id="slamOdom"> Poses des scans comme odométrie (positions approximatives connues)</label>
+      <label class="check" title="Le déplacement entre les poses actuelles de deux scans successifs sert de prédiction (comme l'odométrie du robot) et d'a priori pour la relocalisation"><input type="checkbox" id="slamOdom"> avec les poses des scans comme odométrie (positions approximatives connues)</label>
+      <p class="hint">Chaque scan est localisé sur la carte construite avec les précédents puis ajouté ; les
+        boucles sont fermées. Sans la case, les poses des scans sont ignorées (sauf le premier) ; avec, le
+        déplacement entre deux poses successives sert de prédiction, comme l'odométrie. Pour des scans pris le
+        long d'un trajet, au sol, tous les 20 à 30 cm.</p>
+      <h3>En direct</h3>
       <label class="check"><input type="checkbox" id="slamLive"> SLAM en direct (robot en USB)</label>
-      <p class="hint">« SLAM sur les scans visibles » : chaque scan est localisé sur la carte construite avec les
-        précédents puis ajouté ; les boucles sont fermées. Pour des scans pris le long d'un trajet, au sol, tous
-        les 20 à 30 cm. « SLAM en direct » : pousser ou piloter doucement le robot, la carte se construit seule
-        (un scan clé tous les 20 cm ou 10°).</p>
+      <p class="hint">Pousser doucement le robot à la main, la carte se construit seule (un scan clé tous les
+        20 cm ou 10°). Pas d'odométrie : aucune commande n'est envoyée, la prédiction est la pose précédente.
+        Avec l'exploration autonome ci-dessous (Wi-Fi), l'odométrie (les déplacements commandés) est utilisée
+        automatiquement.</p>
       <p class="stat" id="slamStat"></p>
     </section>
 

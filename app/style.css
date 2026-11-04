@@ -45,6 +45,17 @@ h2 {
   margin: 0 0 8px;
 }
 
+h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 12px 0 2px;
+}
+
+h2 + h3 {
+  margin-top: 0;
+}
+
 .row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .grid3 label, label.inline { display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 11px; }

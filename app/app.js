@@ -1140,7 +1140,8 @@ async function runGlobal() {
   toast('Localisation globale : recherche dans toute la salle…');
   await tick();
   const init = { ...e.pose };
-  const r = globalLocalize(ref, local(e).pts, { grid, mapDominant: walls.length ? dominantDirection(walls) : undefined });
+  const prior = $('globalPrior').checked ? { pose: init, sigmaXY: 0.5, sigmaTheta: 15 } : undefined;
+  const r = globalLocalize(ref, local(e).pts, { grid, mapDominant: walls.length ? dominantDirection(walls) : undefined, prior });
   e.pose = r.pose;
   poseChanged();
   state.globalCandidates = r.candidates.slice(0, 3).map((c) => c.pose);
@@ -1159,7 +1160,7 @@ async function runGlobal() {
     ? `<strong>Ambiguë</strong> : ${ev.best} points pour la 1<sup>re</sup> candidate contre ${ev.second} pour la 2<sup>e</sup> (points qui les départagent) : salle presque symétrique depuis ce point de vue, à vérifier.`
     : `<strong>Fiable</strong> : ${ev.best} points pour la 1<sup>re</sup> candidate contre ${ev.second} pour la 2<sup>e</sup> (points qui les départagent).`;
   $('locResult').innerHTML = `<table class="loc-table"><tr><th>#</th><th>Pose</th><th>Points sur la carte</th>${filePose ? '<th>Écart pose fichier</th>' : ''}</tr>${rows.join('')}</table>
-    <p>${verdict}</p><p class="hint">${r.positions} positions × ${r.angles} orientations (${r.mode === 'murs' ? 'tirées des murs' : 'tous les angles'}), ${Math.round(r.time)} ms. Pose de départ ignorée (était à ${(poseError(r.pose, init).dist * 100).toFixed(0)} cm).</p>`;
+    <p>${verdict}</p><p class="hint">${r.positions} positions × ${r.angles} orientations (${r.mode === 'murs' ? 'tirées des murs' : 'tous les angles'}), ${Math.round(r.time)} ms. ${$('globalPrior').checked ? `A priori : pose de départ à ±50 cm, 15° (trouvée à ${(poseError(r.pose, init).dist * 100).toFixed(0)} cm de celle-ci).` : `Pose de départ ignorée (était à ${(poseError(r.pose, init).dist * 100).toFixed(0)} cm).`}</p>`;
   toast(`${e.name} : localisation globale ${r.ambiguous ? 'ambiguë' : 'fiable'}, ${Math.round(r.inliers * 100)} % des points sur la carte`);
 }
 
@@ -1169,16 +1170,20 @@ async function runGlobal() {
  * SLAM sur les scans visibles, dans l'ordre de la liste (src/core/slam.js) : le premier scan fixe
  * le repère à sa pose actuelle, chaque suivant est localisé sur la carte déjà construite (suivi
  * local, relocalisation globale si besoin), ajouté s'il apporte du nouveau, et les boucles sont
- * fermées. Les poses manuelles des autres scans sont ignorées. Fait pour des scans pris le long
- * d'un trajet (tous les 20 à 30 cm, au sol).
+ * fermées. Les poses manuelles des autres scans sont ignorées, sauf avec « Poses des scans comme
+ * odométrie » : leur déplacement sert alors de prédiction et d'a priori. Fait pour des scans pris
+ * le long d'un trajet (tous les 20 à 30 cm, au sol).
  */
 async function runSlamScans() {
   const vis = state.scans.filter((e) => e.visible);
   if (vis.length < 2) return toast('Il faut au moins 2 scans visibles, dans l\'ordre du trajet');
   const slam = new Slam();
   const t0 = performance.now();
+  // odométrie : déplacement entre les poses actuelles (approximatives) de deux scans successifs
+  const approx = vis.map((e) => ({ ...e.pose }));
+  const useOdom = $('slamOdom').checked;
   for (const [k, e] of vis.entries()) {
-    const r = slam.addScan(e.scan, null, k === 0 ? e.pose : null);
+    const r = slam.addScan(e.scan, useOdom && k ? relative(approx[k - 1], approx[k]) : null, k === 0 ? e.pose : null);
     // après une fermeture de boucle, toute la trajectoire est corrigée
     slam.trajectory.forEach((t, i) => (vis[i].pose = { ...t.pose }));
     state.slamTrack = slam.trajectory.map((t) => t.pose);

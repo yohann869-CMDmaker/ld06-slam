@@ -306,3 +306,15 @@ correction (dx, dy, dθ) donne ∂w/∂x = (1, 0), ∂w/∂y = (0, 1), ∂w/∂�
 **Export ROS** (`GridMap.toROS`) : image PGM P5 (libre 254, occupé 0, inconnu 205) et YAML
 (`resolution`, `origin` = coin bas-gauche, `occupied_thresh` 0,65, `free_thresh` 0,196, `negate` 0),
 la convention de `map_saver` ; la carte s'ouvre dans `map_server`, Nav2 ou RViz.
+
+### 17. A priori de position (`globalloc.js`, `slam.js`)
+
+Bayes : p(pose | scan) ∝ p(scan | pose) · p(pose). Sans a priori, p(pose) est uniforme sur toute
+la salle et seule la vraisemblance (part des points sur la carte) compte : deux poses symétriques
+font jeu égal. Avec un a priori gaussien autour d'une pose approximative (σxy, σθ), la localisation
+globale ne cherche qu'à moins de 3σ et classe les candidates par inliers × exp(−½ (d²/σxy² +
+Δθ²/σθ²)) : c'est l'estimation au maximum a posteriori. Dans le SLAM, la pose prédite
+(pose précédente ∘ mouvement commandé) sert d'a priori à la relocalisation (σ = 1 m, 20°), et
+devient la pose du scan s'il est perdu. Hors ligne (`scripts/benchmark-prior.mjs`, partie C), la
+pose approximative de chaque scan entre dans le graphe comme un lien peu précis (15 cm, 2°) vers le
+premier scan, à côté des liens issus des recalages entre paires.

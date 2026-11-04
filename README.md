@@ -6,7 +6,7 @@ grid map, carte vectorielle, puis (jours 2 et 3) scan matching et SLAM.
 
 **Pour reprendre le projet : [docs/passation.md](docs/passation.md)** (ce qui est fait, ce qui reste).
 
-Comptes rendus : [jour 1](docs/jour1.md), [jour 2](docs/jour2.md) ([banc d'essai](docs/jour2_benchmark.md), [localisation globale](docs/jour2_global.md), [données réelles](docs/jour2_reel.md)), [journal des erreurs et corrections](docs/journal.md), [jour 3 : SLAM](docs/jour3.md) ([banc d'essai](docs/jour3_slam.md)), [exploration autonome](docs/jour3_explore.md), [algorithmes expliqués](docs/algorithmes.md), [état de l'art](docs/etat_de_l_art.md).
+Comptes rendus : [jour 1](docs/jour1.md), [jour 2](docs/jour2.md) ([banc d'essai](docs/jour2_benchmark.md), [localisation globale](docs/jour2_global.md), [données réelles](docs/jour2_reel.md)), [journal des erreurs et corrections](docs/journal.md), [jour 3 : SLAM](docs/jour3.md) ([banc d'essai](docs/jour3_slam.md)), [exploration autonome](docs/jour3_explore.md), [a priori de position](docs/jour3_apriori.md), [algorithmes expliqués](docs/algorithmes.md), [état de l'art](docs/etat_de_l_art.md).
 
 ## Prérequis
 

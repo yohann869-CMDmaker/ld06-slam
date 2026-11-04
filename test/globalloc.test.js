@@ -60,3 +60,18 @@ test('localisation globale : salle vide symétrique signalée ambiguë', () => {
   // le symétrique par rapport au centre de la salle (6 ; 4,5 ; 200°) explique aussi bien le scan
   assert.equal(r.ambiguous, true, `rapport ${r.ratio}`);
 });
+
+test('a priori de position : une salle parfaitement symétrique devient non ambiguë', () => {
+  // salle vide 8 m × 4 m : depuis (2 ; 1,5 ; 0°) le scan est identique depuis (6 ; 2,5 ; 180°)
+  const room = rectangle(0, 0, 8, 4);
+  const truthPose = { x: 2, y: 1.5, theta: 0 };
+  const ref = mapOf(room, [{ x: 2, y: 2, theta: 0 }, { x: 6, y: 2, theta: 0 }, { x: 4, y: 1, theta: 0 }]);
+  const pts = scanToLocalXY(simulateScan(room, truthPose, { seed: 3 }));
+  const blind = globalLocalize(ref, pts);
+  assert.equal(blind.ambiguous, true, 'sans a priori : deux poses symétriques expliquent le scan');
+  const prior = { pose: { x: 2.3, y: 1.3, theta: 6 }, sigmaXY: 0.5, sigmaTheta: 15 };
+  const r = globalLocalize(ref, pts, { prior });
+  const e = err(r.pose, truthPose);
+  assert.ok(e.dist < 0.05 && e.angle < 1, `${e.dist} m, ${e.angle}°`);
+  assert.equal(r.ambiguous, false, 'le symétrique, à 4 m de la pose attendue, est écarté');
+});

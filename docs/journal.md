@@ -177,6 +177,17 @@ direct 10/18 → 16/18.
 | Choix des frontières par utilité sans gain | Une grande frontière lointaine attire le robot avant qu'il ait fini sa pièce | Gardé en option, « la plus proche » reste le défaut |
 | SLAM lent (250 ms par scan) | Recherche multi-résolution à chaque scan | Suivi par Gauss-Newton d'abord (1-2 ms), multi-résolution en secours : 33 à 68 ms |
 
+## Jeudi 5 novembre — a priori de position
+
+| Problème | Cause | Correction |
+| --- | --- | --- |
+| `ls07` localisé au symétrique de la salle (3 m, 88°) | Localisation globale sans information sur la position | A priori de position (pose approximative) : 18 / 18 |
+| SLAM avec odométrie : 13 clichés sur 18 « perdus » | 6 à 45 % des points seulement sur la carte déjà construite (vues trop différentes) | Pose prédite gardée (erreur ≤ 31 cm au lieu de mètres) ; la carte ne grandit pas : documenté, trajet continu nécessaire |
+| Seuil de suivi abaissé à 15 % : scans placés à 50 cm | Avec peu de points communs, le recalage glisse le long des murs jusqu'au bord de la fenêtre | Retiré |
+| Scans « sans contradiction avec l'espace libre » ajoutés à la pose prédite : erreurs jusqu'à 1,1 m | Le test de l'espace libre ne marche pas sur ces données (pieds de chaises, deux jours d'écart) | Retiré |
+| Graphe hors ligne : `NaN` | Scans sans aucun lien de recalage : graphe non connexe | Lien « pose approximative » pour chaque scan |
+| Graphe hors ligne, seuil de recouvrement 25 % : erreur max 52 cm | Faux liens entre scans qui se recouvrent peu | Seuil de 35 % gardé |
+
 Ajouts après lecture des documents du cours : localisation sur trois références et six
 méthodes (dont le calcul direct inspiré de l'article « Mars Attacks! »), coins, oubli des
 segments rarement vus, banc d'essai chiffré du jour 2.

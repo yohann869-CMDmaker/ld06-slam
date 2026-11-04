@@ -156,6 +156,7 @@
         <button id="btnGlobal" class="primary-btn" title="Sans pose de départ : cherche dans toute la salle (positions de sol, orientations tirées des murs)">Localisation globale (pose inconnue)</button>
         <button id="btnLocExport" title="Tous les résultats de localisation de la séance, en CSV (scan, référence, méthode, pose, écart, temps, confiance)">Exporter les résultats</button>
       </div>
+      <label class="check" title="La pose actuelle du scan sert d'a priori (σ = 50 cm, 15°) : recherche à moins de 1,5 m, candidates classées par points sur la carte × probabilité a priori"><input type="checkbox" id="globalPrior"> Localisation globale avec a priori : je connais à peu près la position</label>
       <p class="hint">« Localiser » part de la pose actuelle du scan (à placer d'abord à peu près à la main),
         fenêtre ±50 cm, ±20°. « Localisation globale » ignore la pose : elle cherche dans toute la salle et
         montre les 3 meilleures candidates (1 = retenue). « Pose du fichier » annule.</p>
@@ -169,6 +170,7 @@
         <button id="btnSlam" class="primary-btn" title="Dans l'ordre de la liste, sans les poses manuelles : le premier scan fixe le repère">SLAM sur les scans visibles</button>
         <button id="btnSlamReset">Réinitialiser</button>
       </div>
+      <label class="check" title="Le déplacement entre les poses actuelles de deux scans successifs sert de prédiction (comme l'odométrie du robot) et d'a priori pour la relocalisation"><input type="checkbox" id="slamOdom"> Poses des scans comme odométrie (positions approximatives connues)</label>
       <label class="check"><input type="checkbox" id="slamLive"> SLAM en direct (robot en USB)</label>
       <p class="hint">« SLAM sur les scans visibles » : chaque scan est localisé sur la carte construite avec les
         précédents puis ajouté ; les boucles sont fermées. Pour des scans pris le long d'un trajet, au sol, tous

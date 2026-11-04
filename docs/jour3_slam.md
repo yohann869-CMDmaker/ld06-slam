@@ -12,8 +12,8 @@ sur toute la trajectoire.
 | Méthode | ATE | Erreur max | Arrivée | Scans clés | Relocalisations | Boucles | Temps / scan |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Odométrie seule | 56.4 cm | 90.8 cm | 78.3 cm / 16.1° | – | – | – | – |
-| SLAM sans odométrie | **0.6 cm** | 1.9 cm | 1.9 cm / 0.3° | 75 | 3 | 3 (correction 0 cm, 1 cm, 2 cm) | 68 ms |
-| SLAM avec odométrie | **0.6 cm** | 1.8 cm | 1.8 cm / 0.3° | 75 | 0 | 3 (correction 0 cm, 1 cm, 2 cm) | 38 ms |
+| SLAM sans odométrie | **0.6 cm** | 1.9 cm | 1.9 cm / 0.3° | 75 | 3 | 3 (correction 0 cm, 1 cm, 2 cm) | 124 ms |
+| SLAM avec odométrie | **0.6 cm** | 1.8 cm | 1.8 cm / 0.3° | 75 | 0 | 3 (correction 0 cm, 1 cm, 2 cm) | 74 ms |
 
 ## B. Couloir en boucle de 54 m (lidar limité à 4 m)
 
@@ -22,9 +22,9 @@ sur toute la trajectoire.
 | Méthode | ATE | Erreur max | Arrivée | Scans clés | Relocalisations | Boucles | Temps / scan |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Odométrie seule | 726.8 cm | 1465.3 cm | 1445.6 cm / 87.6° | – | – | – | – |
-| SLAM sans fermeture de boucle | **46.1 cm** | 63.5 cm | 42.5 cm / 1.5° | 188 | 0 | 0 | 22 ms |
-| SLAM + fermeture de boucle (précisions fixes) | **31.5 cm** | 56.0 cm | 2.3 cm / 0.0° | 188 | 0 | 2 (correction 41 cm, 9 cm) | 32 ms |
-| SLAM + fermeture de boucle (précision par direction) | **30.1 cm** | 51.7 cm | 2.0 cm / 0.1° | 188 | 0 | 2 (correction 41 cm, 9 cm) | 33 ms |
+| SLAM sans fermeture de boucle | **46.1 cm** | 63.5 cm | 42.5 cm / 1.5° | 188 | 0 | 0 | 44 ms |
+| SLAM + fermeture de boucle (précisions fixes) | **31.5 cm** | 56.0 cm | 2.3 cm / 0.0° | 188 | 0 | 2 (correction 41 cm, 9 cm) | 58 ms |
+| SLAM + fermeture de boucle (précision par direction) | **30.1 cm** | 51.7 cm | 2.0 cm / 0.1° | 188 | 0 | 2 (correction 41 cm, 9 cm) | 58 ms |
 
 Figures : points des scans clés à leur pose estimée (noir), trajectoire vraie (gris pointillé),
 odométrie seule (orange), SLAM (bleu), liens de fermeture de boucle (rouge).

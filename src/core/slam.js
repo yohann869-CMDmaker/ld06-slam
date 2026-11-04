@@ -32,6 +32,8 @@ export const DEFAULT_SLAM = Object.freeze({
   fastTracking: true, // suivi par Gauss-Newton d'abord, multi-résolution en secours
   fastInliers: 0.7, // part des points sur la carte pour se contenter du suivi rapide
   relocalize: true, // relocalisation globale si le suivi échoue
+  priorXY: 1, // m : écart-type de l'a priori de position quand le mouvement est connu (odométrie)
+  priorTheta: 20, // degrés : idem pour l'orientation
   keyDist: 0.2, // m : nouveau scan clé après ce déplacement
   keyAngle: 10, // degrés : ou cette rotation
   localKeyframes: 15, // taille de la carte locale du suivi (en scans clés)
@@ -177,7 +179,8 @@ export class Slam {
     let best = i.inliers >= m.inliers ? i : m;
     let mode = 'suivi';
     if (best.inliers < this.o.minInliers && this.o.relocalize) {
-      const g = this.relocalize(points);
+      // avec un mouvement connu, la relocalisation cherche autour de la pose prédite (a priori)
+      const g = this.relocalize(points, odom ? { pose: predicted, sigmaXY: this.o.priorXY, sigmaTheta: this.o.priorTheta } : null);
       // relocalisation acceptée seulement si elle est fiable ET colle à la carte (sinon : symétrique
       // de la salle, ou zone pas encore cartographiée)
       if (g && !g.ambiguous && g.inliers >= this.o.minInliers && g.inliers > best.inliers && freeSpaceConflict(this.grid, points, g.pose) <= 0.05) {
@@ -186,7 +189,9 @@ export class Slam {
       }
     }
     if (best.inliers < this.o.minInliers && mode === 'suivi') mode = 'perdu';
-    let pose = best.pose;
+    // perdu : avec un mouvement connu, la pose prédite (odométrie) vaut mieux qu'un recalage raté,
+    // et la suite repart de là au lieu d'une pose fausse
+    let pose = mode === 'perdu' && odom ? predicted : best.pose;
     // 3. cartographie : scan clé s'il a assez bougé et si sa pose est sûre
     const d = relative(this.keyframes[this.keyframes.length - 1].pose, pose);
     const keyframe = mode !== 'perdu' && (Math.hypot(d.x, d.y) >= this.o.keyDist || Math.abs(d.theta) >= this.o.keyAngle);
@@ -204,9 +209,9 @@ export class Slam {
     return r;
   }
 
-  relocalize(points) {
+  relocalize(points, prior = null) {
     const walls = this.vector.segments;
-    return globalLocalize(this.globalReference(), points, { mapDominant: walls.length ? dominantDirection(walls) : undefined });
+    return globalLocalize(this.globalReference(), points, { mapDominant: walls.length ? dominantDirection(walls) : undefined, prior: prior ?? undefined });
   }
 
   /** Cherche une boucle pour le scan clé k ; si trouvée : lien, optimisation du graphe, carte reconstruite. */

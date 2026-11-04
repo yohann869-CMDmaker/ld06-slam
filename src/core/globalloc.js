@@ -17,6 +17,12 @@
 //      qui tranchent. Si la deuxième a au moins moitié autant de « points à elle » que la première
 //      (ou si presque aucun point ne départage), la salle est ambiguë depuis ce point de vue
 //      (symétrie, couloir) : on le dit au lieu de donner une pose fausse avec assurance.
+//
+// A PRIORI (options.prior = { pose, sigmaXY (m), sigmaTheta (degrés) }) : quand on connaît à peu
+// près la position du robot (pose notée à la main, odométrie, pose prédite par le SLAM), on ne cherche
+// qu'à moins de 3σ de cette pose, et les candidates sont classées par « points sur la carte × a priori »,
+// a priori = exp(−½ (d² / σxy² + Δθ² / σθ²)) : c'est l'estimation au maximum a posteriori (Bayes).
+// Le symétrique d'une salle presque symétrique, loin de la pose attendue, est alors écarté d'office.
 
 import { DEG, normalizeAngleDeg } from './pose.js';
 import { subsample, topCandidates } from './matching.js';
@@ -113,8 +119,19 @@ export function globalLocalize(ref, localPts, options = {}) {
   const t0 = performance.now();
   const grid = o.grid ?? ref.grid;
   if (!grid) throw new Error('Localisation globale : il faut une grid map pour les positions candidates');
-  const positions = freePositions(grid, o.step, o.clearance);
-  const { angles, mode } = candidateAngles(localPts, o.mapDominant, o);
+  const prior = o.prior;
+  const priorWeight = (pose) =>
+    prior ? Math.exp(-0.5 * ((Math.hypot(pose.x - prior.pose.x, pose.y - prior.pose.y) / prior.sigmaXY) ** 2 + (normalizeAngleDeg(pose.theta - prior.pose.theta) / prior.sigmaTheta) ** 2)) : 1;
+  let positions = freePositions(grid, o.step, o.clearance);
+  let { angles, mode } = candidateAngles(localPts, o.mapDominant, o);
+  if (prior) {
+    // recherche limitée à 3σ autour de la pose attendue (si la carte y a du sol libre)
+    const near = positions.filter((p) => Math.hypot(p.x - prior.pose.x, p.y - prior.pose.y) <= 3 * prior.sigmaXY);
+    if (near.length) positions = near;
+    else positions = [{ x: prior.pose.x, y: prior.pose.y }];
+    const close = angles.filter((a) => Math.abs(normalizeAngleDeg(a - prior.pose.theta)) <= 3 * prior.sigmaTheta);
+    angles = close.length ? close : angles;
+  }
 
   // 3. tri : score de chaque (position, orientation) sur le champ lissé
   const field = ref.field(o.coarseRes);
@@ -160,10 +177,11 @@ export function globalLocalize(ref, localPts, options = {}) {
     const m = localize(ref, localPts, c.pose, 'multires', { xyRange: 1.5 * o.step, thRange: mode === 'murs' ? o.dominantSpread + 2 : 2 * o.fullAngleStep });
     const r = localize(ref, localPts, m.pose, 'icp');
     const best = r.inliers >= m.inliers ? r : m;
-    return { pose: best.pose, inliers: best.inliers, coarse: c.score };
+    return { pose: best.pose, inliers: best.inliers, coarse: c.score, prior: priorWeight(best.pose) };
   });
-  // deux candidates peuvent converger vers la même pose : on ne garde que des poses distinctes
-  refined.sort((u, v) => v.inliers - u.inliers);
+  // deux candidates peuvent converger vers la même pose : on ne garde que des poses distinctes ;
+  // classement par points sur la carte, multipliés par l'a priori s'il y en a un
+  refined.sort((u, v) => v.inliers * v.prior - u.inliers * u.prior);
   const distinct = [];
   for (const r of refined) {
     const same = distinct.some(
@@ -192,6 +210,8 @@ export function globalLocalize(ref, localPts, options = {}) {
     });
     ratio = evidence.second / Math.max(evidence.best, 1);
     ambiguous = evidence.best < o.minEvidence || ratio >= o.ambiguity;
+    // avec un a priori, une deuxième candidate très improbable (au-delà de 3σ) ne crée pas d'ambiguïté
+    if (prior && second.prior < Math.exp(-4.5)) ambiguous = evidence.best < o.minEvidence;
   }
   return {
     pose: best.pose,
@@ -200,6 +220,7 @@ export function globalLocalize(ref, localPts, options = {}) {
     ratio,
     evidence,
     ambiguous,
+    prior: best.prior,
     positions: positions.length,
     angles: angles.length,
     mode,

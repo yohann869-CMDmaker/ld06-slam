@@ -181,3 +181,49 @@ des recalages un peu moins justes que la multi-résolution suivie de l'ICP. Pour
 vitesse compte : un scan traité en 40 ms laisse le temps de suivre le lidar à 10 tours par seconde.
 Le tableau « Résultats sur trajets simulés » plus haut est celui d'avant ce changement ;
 [jour3_slam.md](jour3_slam.md) donne les chiffres actuels.
+
+## Connaître (à peu près) la position du robot (5 novembre)
+
+Question de départ : le robot Mecanum n'a pas de codeurs, mais on connaît souvent sa position **à
+peu près** (pose notée à la main, durée des commandes). Est-ce que ça aide ? Mesuré sur les 18 scans
+réels, dont chaque fichier porte une pose approximative (médiane 8,5 cm, au pire 24 cm de la pose
+recalée) : [jour3_apriori.md](jour3_apriori.md), `node scripts/benchmark-prior.mjs`.
+
+**Ce qui a été ajouté au code**
+
+- Localisation globale **avec a priori** (`globalLocalize(..., { prior })`) : recherche limitée à
+  3σ de la pose attendue, candidates classées par « points sur la carte × probabilité a priori »
+  (estimation au maximum a posteriori). Dans l'application : case « Localisation globale avec a
+  priori ».
+- SLAM : la relocalisation utilise la pose prédite comme a priori ; un scan perdu garde la pose
+  prédite par l'odométrie au lieu d'un recalage raté. Dans l'application : case « Poses des scans
+  comme odométrie » pour « SLAM sur les scans visibles ».
+
+**Résultats**
+
+| | Sans a priori | Avec a priori |
+| --- | --- | --- |
+| A. Localisation globale (18 scans, carte sans le scan) | 17 / 18 ; `ls07` au symétrique (3 m, 88°), 9 réponses « ambiguës » | **18 / 18**, 5 « ambiguës », 25 % plus rapide |
+| B. SLAM en ligne sur les 18 clichés | 17 scans perdus, erreur médiane 4,3 m (jusqu'à 11,6 m) | 13 perdus, mais aucun loin : erreur médiane **9,7 cm**, au pire 31 cm |
+| C. Graphe de poses hors ligne (Lu & Milios 1997) | — | erreur médiane **8,5 → 4,2 cm** |
+
+- **A** : l'a priori lève l'ambiguïté de la salle presque symétrique : le symétrique, à plusieurs
+  mètres de la pose attendue, n'est plus candidat.
+- **B** : l'a priori empêche les grosses erreurs, mais ne fait pas grandir la carte : chaque cliché
+  au sol ne retrouve que 6 à 45 % de ses points sur la carte déjà construite (vue depuis une autre
+  partie de la salle, ou d'en haut). Deux tentatives pour les accepter quand même ont échoué :
+  baisser le seuil (les recalages glissent le long des murs jusqu'à 50 cm), et accepter les scans
+  qui ne contredisent pas l'espace libre (sur données réelles, 12 à 85 % de « contradictions » même à
+  la bonne pose : pieds de chaises vus d'un côté et pas de l'autre, scans pris à deux jours d'écart).
+  Retirées. **Un SLAM en ligne a besoin d'un trajet continu** ; la position approximative rend ce
+  trajet plus sûr, elle ne le remplace pas.
+- **C** : avec des clichés épars, la bonne méthode est **hors ligne** : tous les scans à la fois,
+  un lien par paire de scans qui se recouvrent (35 % des points), plus un lien « pose approximative »
+  par scan, puis optimisation du graphe. C'est le graph SLAM de Lu & Milios (1997), et c'est la même
+  idée que le recalage commun qui a produit notre carte de référence. Avec un seuil de 25 % ou 20 %,
+  de faux liens apparaissent (erreur maximale 52 puis 62 cm) : le seuil de 35 % est gardé.
+
+![Graphe de poses hors ligne sur les scans réels](img/j3_reel_graphe.png)
+
+*Carte de la salle par le graphe de poses : points des scans au sol à leur pose optimisée (noir),
+carte de référence (gris), liens entre scans (bleu).*

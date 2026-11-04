@@ -38,6 +38,13 @@ Ajouts du 4 novembre (soir), après l'état de l'art :
 - export de la grid map au format ROS (PGM + YAML) dans l'appli et en ligne de commande ;
 - exploration : choix de la frontière par utilité essayé, sans gain, gardé en option.
 
+Ajouts du 5 novembre (« il faut connaître la position du robot ») : a priori de position dans la
+localisation globale (18 / 18 au lieu de 17 / 18 sur les scans réels) et dans le SLAM ; graphe de
+poses hors ligne (Lu & Milios) qui donne une carte complète de la salle à partir des clichés et de
+leurs poses approximatives (erreur médiane 4,2 cm). Détails : `docs/jour3.md`, dernière section, et
+`docs/jour3_apriori.md`. Le SLAM en ligne sur clichés épars reste impossible : trajet continu
+nécessaire (essai avec le robot toujours à faire, robots rares en salle).
+
 Constat important (jour 3) : sur les 18 clichés réels (épars, deux hauteurs, salle presque
 symétrique), un SLAM parti de zéro est ambigu. Il faut un **trajet continu au sol**, un scan
 tous les 20 à 30 cm : c'est le mode « SLAM en direct » de l'application, pas encore essayé sur

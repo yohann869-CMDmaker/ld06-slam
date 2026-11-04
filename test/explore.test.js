@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { blockedCells, commandRequest, freeAhead, freeCoverage, planExploration, simulateExploration, updateSpeeds } from '../src/core/explore.js';
+import { blockedCells, commandMotion, commandRequest, freeAhead, freeCoverage, planExploration, simulateExploration, updateSpeeds } from '../src/core/explore.js';
 import { rectangle, simulateScan } from '../src/core/sim.js';
 import { gridFromScan } from '../src/core/gridmap.js';
 import { parseRobotBinary, scanToLocalXY } from '../src/core/scan.js';
@@ -78,6 +78,7 @@ test('robot réel : durée des commandes (rotation doublée, durée plafonnée �
   const s = updateSpeeds(speeds, { kind: 'forward', distance: 0.3 }, { x: 0.36, y: 0, theta: 0 });
   assert.ok(s.linear > 0.25 && s.linear < 0.3);
   assert.deepEqual(updateSpeeds(speeds, { kind: 'forward', distance: 0.05 }, { x: 0.2, y: 0, theta: 0 }), speeds, 'petit mouvement ignoré');
+  assert.deepEqual(updateSpeeds(speeds, { kind: 'forward', distance: 0.3 }, { x: 0.09, y: 0, theta: 0 }), speeds, 'arrêté par un obstacle : ignoré');
 });
 
 test('scan binaire Wi-Fi (ESP32RobotControl) : pose et points décodés', () => {
@@ -97,4 +98,22 @@ test('scan binaire Wi-Fi (ESP32RobotControl) : pose et points décodés', () => 
   assert.deepEqual(scan.pose, { x: -1.5, y: 0.25, theta: 90 });
   assert.deepEqual(scan.points, [{ angle: 12.34, r: 2.5, intensity: 200 }, { angle: 359.99, r: 0, intensity: 0 }]);
   assert.throws(() => parseRobotBinary(new ArrayBuffer(12)), /taille invalide/);
+});
+
+test('robot réel : recul et déplacement latéral (Mecanum), chacun avec sa vitesse étalonnée', () => {
+  const speeds = { linear: 0.25, angular: 90, lateral: 0.2 };
+  const back = commandRequest({ kind: 'forward', distance: -0.3 }, speeds);
+  assert.deepEqual([back.route, back.time], ['backward', 1200]);
+  assert.ok(Math.abs(back.command.distance + 0.3) < 1e-9);
+  const left = commandRequest({ kind: 'strafe', distance: 0.3 }, speeds);
+  assert.deepEqual([left.route, left.time], ['left', 1500]);
+  assert.equal(commandRequest({ kind: 'strafe', distance: -0.2 }, speeds).route, 'right');
+  assert.deepEqual(commandMotion({ kind: 'strafe', distance: 0.3 }), { x: 0, y: 0.3, theta: 0 });
+  assert.deepEqual(commandMotion({ kind: 'forward', distance: -0.3 }), { x: -0.3, y: 0, theta: 0 });
+  // le robot a glissé de 0,24 m au lieu de 0,30 : vitesse latérale revue à la baisse, l'avance intacte
+  const s = updateSpeeds(speeds, { kind: 'strafe', distance: 0.3 }, { x: 0.01, y: 0.24, theta: 0 });
+  assert.ok(s.lateral < 0.2 && s.lateral > 0.18);
+  assert.equal(s.linear, 0.25);
+  const r = updateSpeeds(speeds, { kind: 'forward', distance: -0.3 }, { x: -0.36, y: 0, theta: 0 });
+  assert.ok(r.linear > 0.25, 'le recul étalonne aussi la vitesse linéaire');
 });

@@ -220,7 +220,9 @@ export class Explorer {
 
 /** Déplacement commandé (repère du robot) correspondant à une commande : sert d'odométrie au SLAM. */
 export function commandMotion(command) {
-  return command.kind === 'rotate' ? { x: 0, y: 0, theta: command.angle } : { x: command.distance, y: 0, theta: 0 };
+  if (command.kind === 'rotate') return { x: 0, y: 0, theta: command.angle };
+  if (command.kind === 'strafe') return { x: 0, y: command.distance, theta: 0 };
+  return { x: command.distance, y: 0, theta: 0 };
 }
 
 /**
@@ -283,14 +285,15 @@ export function freeCoverage(grid, points) {
  * codeurs : il roule pendant une durée donnée). Valeurs de départ à mesurer ; updateSpeeds les
  * corrige au fil de l'exploration d'après le déplacement mesuré par le SLAM.
  */
-export const DEFAULT_SPEEDS = Object.freeze({ linear: 0.25, angular: 90 }); // m/s, degrés/s
+export const DEFAULT_SPEEDS = Object.freeze({ linear: 0.25, angular: 90, lateral: 0.2 }); // m/s, degrés/s, m/s
 
 const MAX_MOVE_MS = 2000; // limite du programme ESP32RobotControl
 
 /**
  * Requête HTTP pour une commande : { route, time (paramètre envoyé), duration (ms de mouvement),
- * command (commande effective, réduite si la durée a été plafonnée) }. Le programme divise par 2
- * la durée des rotations : on envoie le double.
+ * command (commande effective, réduite si la durée a été plafonnée) }. Commandes : rotate (angle,
+ * + = à gauche), forward (distance, négative = recul), strafe (distance latérale du Mecanum,
+ * + = à gauche). Le programme divise par 2 la durée des rotations : on envoie le double.
  */
 export function commandRequest(command, speeds = DEFAULT_SPEEDS) {
   if (command.kind === 'rotate') {
@@ -298,25 +301,33 @@ export function commandRequest(command, speeds = DEFAULT_SPEEDS) {
     const angle = Math.sign(command.angle) * (duration / 1000) * speeds.angular;
     return { route: command.angle >= 0 ? 'rotateleft' : 'rotateright', time: Math.round(2 * duration), duration, command: { kind: 'rotate', angle } };
   }
-  const duration = Math.min(MAX_MOVE_MS, (1000 * command.distance) / speeds.linear);
-  return { route: 'forward', time: Math.round(duration), duration, command: { kind: 'forward', distance: (duration / 1000) * speeds.linear } };
+  const strafe = command.kind === 'strafe';
+  const speed = strafe ? speeds.lateral ?? DEFAULT_SPEEDS.lateral : speeds.linear;
+  const duration = Math.min(MAX_MOVE_MS, (1000 * Math.abs(command.distance)) / speed);
+  const distance = Math.sign(command.distance) * (duration / 1000) * speed;
+  const route = strafe ? (command.distance >= 0 ? 'left' : 'right') : command.distance >= 0 ? 'forward' : 'backward';
+  return { route, time: Math.round(duration), duration, command: { kind: command.kind, distance } };
 }
 
 /**
  * Étalonnage en ligne : compare le mouvement commandé au mouvement mesuré par le SLAM
  * (déplacement relatif entre deux scans bien localisés) et corrige la vitesse correspondante
- * (rapport borné à [0,5 ; 2], lissé par `rate`). Les petits mouvements sont ignorés (trop bruités).
+ * (lissé par `rate`). Les petits mouvements sont ignorés (trop bruités), et les rapports aberrants,
+ * hors de [0,5 ; 2], aussi : robot arrêté par un obstacle, roue qui patine.
  */
 export function updateSpeeds(speeds, command, measured, rate = 0.3) {
   const out = { ...speeds };
   if (command.kind === 'rotate') {
     if (Math.abs(command.angle) < 15) return out;
-    const ratio = Math.min(2, Math.max(0.5, Math.abs(measured.theta) / Math.abs(command.angle)));
+    const ratio = Math.abs(measured.theta) / Math.abs(command.angle);
+    if (ratio < 0.5 || ratio > 2) return out;
     out.angular = speeds.angular * ratio ** rate;
   } else {
-    if (command.distance < 0.1) return out;
-    const ratio = Math.min(2, Math.max(0.5, Math.hypot(measured.x, measured.y) / command.distance));
-    out.linear = speeds.linear * ratio ** rate;
+    if (Math.abs(command.distance) < 0.1) return out;
+    const ratio = Math.hypot(measured.x, measured.y) / Math.abs(command.distance);
+    if (ratio < 0.5 || ratio > 2) return out;
+    const key = command.kind === 'strafe' ? 'lateral' : 'linear';
+    out[key] = (speeds[key] ?? DEFAULT_SPEEDS[key]) * ratio ** rate;
   }
   return out;
 }

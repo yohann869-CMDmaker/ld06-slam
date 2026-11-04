@@ -56,6 +56,17 @@ h2 + h3 {
   margin-top: 0;
 }
 
+.drive {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.warn {
+  color: #c92a2a;
+}
+
 .row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .grid3 label, label.inline { display: flex; flex-direction: column; gap: 3px; color: var(--muted); font-size: 11px; }

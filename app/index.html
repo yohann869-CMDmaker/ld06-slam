@@ -186,7 +186,7 @@
     </section>
 
     <section>
-      <h2>Exploration autonome (bonus)</h2>
+      <h2>Robot en Wi-Fi : pilotage et exploration (bonus)</h2>
       <div class="row">
         <label class="inline">Scène
           <select id="exploScene">
@@ -205,6 +205,20 @@
         <button id="btnExploRobot" class="primary-btn" title="Programme ESP32RobotControl, PC connecté au Wi-Fi RobotESP32">Explorer avec le robot (Wi-Fi)</button>
         <button id="btnExploStop" title="Échap">Arrêt</button>
       </div>
+      <h3>Pilotage manuel avec odométrie</h3>
+      <div class="drive">
+        <button id="drive_gauche" title="Tourner de 30° à gauche (U)">↶ 30°</button>
+        <button id="drive_avance" title="Avancer de 30 cm (I)">↑ 30 cm</button>
+        <button id="drive_droite" title="Tourner de 30° à droite (O)">↷ 30°</button>
+        <button id="drive_glisseG" title="Glisser de 30 cm à gauche (J)">← 30 cm</button>
+        <button id="drive_recul" title="Reculer de 30 cm (K)">↓ 30 cm</button>
+        <button id="drive_glisseD" title="Glisser de 30 cm à droite (L)">→ 30 cm</button>
+      </div>
+      <label class="check"><input type="checkbox" id="driveKeys"> Piloter au clavier (I K J L U O, comme RobotControl)</label>
+      <p class="hint">Chaque bouton envoie un déplacement connu, puis scan et SLAM : le déplacement commandé sert de
+        prédiction (odométrie), le lidar la corrige, et l'écart commandé / mesuré corrige les vitesses. Pas besoin
+        de mesurer : le robot sait de combien il a bougé.</p>
+      <h3>Exploration autonome</h3>
       <p class="hint">Le robot part sans carte : à chaque pas, scan, SLAM, puis il va vers la frontière la plus
         proche entre le connu et l'inconnu (vert), par le chemin le plus court (orange), loin des obstacles.
         Robot : téléverser <code>ESP32RobotControl.ino</code>, se connecter au Wi-Fi <code>RobotESP32</code>,

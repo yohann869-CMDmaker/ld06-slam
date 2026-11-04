@@ -2,7 +2,7 @@
 // construction et mise à jour d'une grid map et d'une carte vectorielle.
 import { DEG, normalizeAngleDeg, poseError, transformPoints } from '../src/core/pose.js';
 import { looksElevated, parseRobotBinary, parseScanCSV, scanToLocalXY, serializeScanCSV, setElevated, validPoints } from '../src/core/scan.js';
-import { commandMotion, commandRequest, Explorer, simulateExploration, updateSpeeds } from '../src/core/explore.js';
+import { commandMotion, commandRequest, DEFAULT_EXPLORE, Explorer, freeAhead, simulateExploration, updateSpeeds } from '../src/core/explore.js';
 import { GridMap, gridFromScan, occupancyRGB, UNKNOWN_RGB } from '../src/core/gridmap.js';
 import { VectorMap } from '../src/core/vectormap.js';
 import { autoAlign, consistency, matchScan } from '../src/core/matching.js';
@@ -1210,8 +1210,14 @@ function slamLiveStep() {
     state.slam ??= new Slam();
     const slam = state.slam;
     const first = slam.keyframes.length ? null : state.selected?.pose ?? { x: 0, y: 0, theta: 0 };
+    const prev = state.slamLivePose;
     const r = slam.addScan(live.scan, null, first);
     state.slamLivePose = r.pose;
+    // déplacement depuis le scan précédent, mesuré par le lidar : il doit rester dans la fenêtre de
+    // suivi (±50 cm, ±20°) ; au-delà de 35 cm ou 15° par scan, on prévient
+    const step = prev ? relative(prev, r.pose) : null;
+    const stepCm = step ? 100 * Math.hypot(step.x, step.y) : 0;
+    const fast = step && (stepCm > 35 || Math.abs(step.theta) > 15);
     if (r.keyframe) {
       const entry = addScan(parseScanCSV(live.text, captureName()));
       entry.pose = { ...r.pose };
@@ -1221,7 +1227,9 @@ function slamLiveStep() {
     if (r.loop) for (const e of state.scans) if (e.slamIndex != null) e.pose = { ...slam.trajectory[e.slamIndex].pose };
     state.slamTrack = slam.keyframes.map((kf) => kf.pose);
     if (r.keyframe || r.loop) poseChanged();
-    $('slamStat').textContent = `SLAM en direct : ${slam.keyframes.length} scans clés · dernier scan ${r.mode} (${Math.round(100 * r.inliers)} % sur la carte, ${Math.round(r.time)} ms)${slam.loops.length ? ` · ${slam.loops.length} boucle(s)` : ''}`;
+    const kf = slam.keyframes.at(-1).pose;
+    const sinceKf = 100 * Math.hypot(r.pose.x - kf.x, r.pose.y - kf.y);
+    $('slamStat').innerHTML = `SLAM en direct : pose ${fmtPose(r.pose)} · dernier pas ${step ? `${stepCm.toFixed(0)} cm / ${Math.abs(step.theta).toFixed(0)}°` : '–'}${fast ? ' · <strong class="warn">trop vite, ralentir</strong>' : ''} · ${sinceKf.toFixed(0)} cm depuis le dernier scan clé<br>${slam.keyframes.length} scans clés · dernier scan ${r.mode} (${Math.round(100 * r.inliers)} % sur la carte, ${Math.round(r.time)} ms)${slam.loops.length ? ` · ${slam.loops.length} boucle(s)` : ''}`;
     draw();
   } finally {
     state.slamBusy = false;
@@ -1231,6 +1239,7 @@ function slamLiveStep() {
 function resetSlam() {
   Object.assign(state, { slam: null, slamTrack: null, slamLivePose: null });
   Object.assign(explo, { plan: null, truth: null, scene: null });
+  Object.assign(wifi, { odom: null, lastCmd: null, prevPose: null, lastScan: null });
   for (const e of state.scans) delete e.slamIndex;
   $('slamStat').textContent = 'SLAM réinitialisé : le prochain scan en direct fixe le repère (à la pose du scan sélectionné).';
   draw();
@@ -1352,6 +1361,118 @@ async function robotGet(path, binary = false) {
   }
 }
 
+// Robot en Wi-Fi : un pas = (commande →) scan → SLAM. Le déplacement commandé sert d'odométrie
+// (prédiction du SLAM), et le déplacement mesuré par le SLAM corrige les vitesses du robot
+// (étalonnage : le robot n'a pas de codeurs, seule la durée des commandes est connue).
+const wifi = { odom: null, lastCmd: null, prevPose: null, busy: false, speeds: null, lastScan: null };
+
+function robotSpeeds() {
+  wifi.speeds = { linear: Number($('robotLin').value), angular: Number($('robotAng').value), lateral: wifi.speeds?.lateral ?? 0.2 };
+  return wifi.speeds;
+}
+
+/** Scan Wi-Fi, SLAM avec l'odométrie de la dernière commande, étalonnage, scans clés dans la liste. */
+async function wifiScanStep() {
+  const scan = parseRobotBinary(await robotGet('/scan', true), captureName());
+  const slam = (state.slam ??= new Slam());
+  const first = slam.keyframes.length ? null : state.selected?.pose ?? { x: 0, y: 0, theta: 0 };
+  const r = slam.addScan(scan, wifi.odom, first);
+  let measured = null;
+  if (wifi.lastCmd && wifi.prevPose) {
+    measured = relative(wifi.prevPose, r.pose);
+    if (r.mode === 'suivi' && r.inliers >= 0.7) {
+      const sp = updateSpeeds(robotSpeeds(), wifi.lastCmd, measured);
+      wifi.speeds = sp;
+      $('robotLin').value = sp.linear.toFixed(3);
+      $('robotAng').value = sp.angular.toFixed(0);
+    }
+  }
+  wifi.odom = null;
+  wifi.lastScan = scan;
+  if (r.keyframe) {
+    const entry = addScan(scan);
+    entry.pose = { ...r.pose };
+    entry.slamIndex = r.index;
+    select(entry);
+  }
+  if (r.loop) for (const e of state.scans) if (e.slamIndex != null) e.pose = { ...slam.trajectory[e.slamIndex].pose };
+  if (r.keyframe || r.loop) poseChanged();
+  state.slamTrack = slam.keyframes.map((kf) => kf.pose);
+  state.slamLivePose = r.pose;
+  return { scan, r, slam, measured };
+}
+
+/** Envoie une commande au robot, garde son déplacement comme odométrie, attend la fin du mouvement. */
+async function wifiMove(command) {
+  const req = commandRequest(command, robotSpeeds());
+  await robotGet(`/${req.route}?time=${req.time}`);
+  wifi.lastCmd = req.command;
+  wifi.odom = commandMotion(req.command);
+  wifi.prevPose = state.slamLivePose ? { ...state.slamLivePose } : null;
+  await sleep(req.duration + 400); // fin du mouvement, puis quelques tours de lidar robot arrêté
+  return req;
+}
+
+const fmtPose = (p) => `(${p.x.toFixed(2)} ; ${p.y.toFixed(2)} ; ${p.theta.toFixed(0)}°)`;
+const fmtMove = (c) => (c.kind === 'rotate' ? `${c.angle.toFixed(0)}°` : `${(100 * c.distance).toFixed(0)} cm`);
+const fmtMeasured = (c, m) => (c.kind === 'rotate' ? `${normalizeAngleDeg(m.theta).toFixed(0)}°` : `${(100 * Math.hypot(m.x, m.y)).toFixed(0)} cm`);
+
+/**
+ * Pilotage manuel (Wi-Fi) : chaque bouton envoie un déplacement connu (30 cm, 30°), puis scan et
+ * SLAM avec ce déplacement comme odométrie. Le robot « connaît » son déplacement sans ruban : la
+ * commande donne la prédiction, le lidar la corrige.
+ */
+async function manualStep(command) {
+  if (wifi.busy || explo.running) return;
+  wifi.busy = true;
+  try {
+    if (!state.slam?.keyframes.length || !wifi.lastScan) await wifiScanStep(); // premier scan : il fixe le repère
+    const safe = clampToFree(command);
+    if (!safe) {
+      toast('Obstacle trop proche dans cette direction : mouvement refusé');
+      return;
+    }
+    const req = await wifiMove(safe);
+    const { r, slam, measured } = await wifiScanStep();
+    const cmp = measured ? ` · commandé ${fmtMove(req.command)}, mesuré ${fmtMeasured(req.command, measured)}` : '';
+    exploStat(`Pose ${fmtPose(r.pose)} · ${r.mode} (${Math.round(100 * r.inliers)} % sur la carte)${cmp} · ${slam.keyframes.length} scans clés · vitesses ${(100 * wifi.speeds.linear).toFixed(0)} cm/s, ${wifi.speeds.angular.toFixed(0)}°/s, latéral ${(100 * wifi.speeds.lateral).toFixed(0)} cm/s`);
+    if (r.mode === 'perdu') toast('SLAM perdu : le scan ne colle pas à la carte ; revenir en arrière ou faire de plus petits pas');
+    draw();
+  } catch (err) {
+    robotGet('/stop').catch(() => {});
+    exploStat(`Arrêt : ${err.message}`);
+    toast(err.message);
+  } finally {
+    wifi.busy = false;
+  }
+}
+
+/**
+ * Sécurité du pilotage manuel : distance libre dans la direction du mouvement, d'après le dernier
+ * scan (couloir de la largeur du robot) ; le mouvement est raccourci, ou refusé (null) s'il reste
+ * moins de 5 cm.
+ */
+function clampToFree(command) {
+  if (command.kind === 'rotate' || !wifi.lastScan) return command;
+  const dir = command.kind === 'strafe' ? (command.distance >= 0 ? 90 : -90) : command.distance >= 0 ? 0 : 180;
+  const c = Math.cos(-dir * DEG);
+  const sn = Math.sin(-dir * DEG);
+  const pts = scanToLocalXY(wifi.lastScan, filterOpts()).map((p) => ({ x: c * p.x - sn * p.y, y: sn * p.x + c * p.y }));
+  const { robotRadius, clearance } = DEFAULT_EXPLORE;
+  const free = freeAhead(pts, robotRadius) - robotRadius - clearance;
+  const d = Math.min(Math.abs(command.distance), free);
+  return d < 0.05 ? null : { ...command, distance: Math.sign(command.distance) * d };
+}
+
+const MANUAL = {
+  avance: { kind: 'forward', distance: 0.3 },
+  recul: { kind: 'forward', distance: -0.3 },
+  gauche: { kind: 'rotate', angle: 30 },
+  droite: { kind: 'rotate', angle: -30 },
+  glisseG: { kind: 'strafe', distance: 0.3 },
+  glisseD: { kind: 'strafe', distance: -0.3 },
+};
+
 /**
  * Exploration avec le vrai robot : scan Wi-Fi → SLAM (avec le mouvement commandé comme
  * prédiction) → commande → attente de la fin du mouvement et d'un tour de lidar neuf. S'arrête si
@@ -1359,36 +1480,14 @@ async function robotGet(path, binary = false) {
  */
 async function runExploRobot() {
   if (explo.running) return stopExplo();
+  if (wifi.busy) return;
   Object.assign(explo, { running: true, mode: 'robot', plan: null, truth: null, scene: null });
-  const slam = (state.slam ??= new Slam());
   const explorer = new Explorer();
-  let speeds = { linear: Number($('robotLin').value), angular: Number($('robotAng').value) };
-  let odom = null;
-  let lastCmd = null;
-  let prevPose = null;
   let steps = 0;
   try {
     while (explo.running) {
-      const scan = parseRobotBinary(await robotGet('/scan', true), captureName());
-      const first = slam.keyframes.length ? null : state.selected?.pose ?? { x: 0, y: 0, theta: 0 };
-      const r = slam.addScan(scan, odom, first);
+      const { scan, r, slam } = await wifiScanStep();
       if (r.mode === 'perdu') throw new Error('SLAM perdu : le scan ne colle plus à la carte, exploration arrêtée');
-      // étalonnage : mouvement mesuré par le SLAM contre mouvement commandé
-      if (lastCmd && r.mode === 'suivi' && r.inliers >= 0.7) {
-        speeds = updateSpeeds(speeds, lastCmd, relative(prevPose, r.pose));
-        $('robotLin').value = speeds.linear.toFixed(3);
-        $('robotAng').value = speeds.angular.toFixed(0);
-      }
-      if (r.keyframe) {
-        const entry = addScan(scan);
-        entry.pose = { ...r.pose };
-        entry.slamIndex = r.index;
-        select(entry);
-      }
-      if (r.loop) for (const e of state.scans) if (e.slamIndex != null) e.pose = { ...slam.trajectory[e.slamIndex].pose };
-      if (r.keyframe || r.loop) poseChanged();
-      state.slamTrack = slam.keyframes.map((kf) => kf.pose);
-      state.slamLivePose = r.pose;
       const plan = explorer.next(slam.grid, slam.last, scanToLocalXY(scan, filterOpts()));
       explo.plan = plan;
       draw();
@@ -1396,14 +1495,9 @@ async function runExploRobot() {
         exploStat(`Exploration terminée après ${steps} pas : ${plan.reason}.`);
         break;
       }
-      const req = commandRequest(plan.command, speeds);
-      exploStat(`Pas ${++steps} · ${slam.keyframes.length} scans clés · ${r.mode} (${Math.round(100 * r.inliers)} %) · ${req.route} ${Math.round(req.duration)} ms · ${plan.frontiers.length} zone(s) frontière`);
+      exploStat(`Pas ${++steps} · ${slam.keyframes.length} scans clés · ${r.mode} (${Math.round(100 * r.inliers)} %) · pose ${fmtPose(r.pose)} · ${plan.frontiers.length} zone(s) frontière`);
       if (!explo.running) break;
-      await robotGet(`/${req.route}?time=${req.time}`);
-      lastCmd = req.command;
-      odom = commandMotion(req.command);
-      prevPose = r.pose;
-      await sleep(req.duration + 400); // fin du mouvement, puis quelques tours de lidar robot arrêté
+      await wifiMove(plan.command);
     }
   } catch (err) {
     robotGet('/stop').catch(() => {});
@@ -1628,6 +1722,13 @@ window.addEventListener('keydown', (ev) => {
     return;
   }
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName) || $('pasteDialog').open) return;
+  // pilotage au clavier, mêmes touches que RobotControl : I/K avancer/reculer, J/L glisser, U/O tourner
+  const driveKeys = { i: 'avance', k: 'recul', j: 'glisseG', l: 'glisseD', u: 'gauche', o: 'droite' };
+  if ($('driveKeys').checked && driveKeys[ev.key.toLowerCase()]) {
+    ev.preventDefault();
+    manualStep(MANUAL[driveKeys[ev.key.toLowerCase()]]);
+    return;
+  }
   if (ev.key === ' ' && live.scan) {
     ev.preventDefault();
     liveCapture();
@@ -1705,6 +1806,7 @@ $('btnSlamReset').onclick = resetSlam;
 $('btnExploSim').onclick = runExploSim;
 $('btnExploRobot').onclick = runExploRobot;
 $('btnExploStop').onclick = stopExplo;
+for (const [id, cmd] of Object.entries(MANUAL)) $(`drive_${id}`).onclick = () => manualStep(cmd);
 $('slamLive').onchange = () => {
   $('slamStat').textContent = $('slamLive').checked
     ? 'SLAM en direct : déplacer doucement le robot ; un scan clé est ajouté tous les 20 cm ou 10°.'

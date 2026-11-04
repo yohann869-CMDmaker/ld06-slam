@@ -8,23 +8,65 @@
 // automatique de `time` ms ; la position avance avec le temps (et pendant les scans). Vitesses
 // vraies différentes des valeurs par défaut de l'appli (pour voir l'étalonnage), proportionnelles à
 // /speed, avec du glissement ; le robot s'arrête avant les murs.
-// Usage : node scripts/mock-robot.mjs [--scene pieces|salle] [--port 8090]
-//         puis, dans l'appli, IP du robot : localhost:8090
+// Scènes : « reelle » (défaut) = NOTRE salle de classe, murs et meubles de la carte de référence
+// (data/reference/carte_reference.json), départ à la pose du scan scan_1102_180026 ; « salle » et
+// « pieces » = scènes simulées du banc d'essai. --chaises N ajoute N chaises (4 pieds de 3 cm) au
+// hasard, comme lors du premier essai réel ; --bruit σ (m) règle le bruit du lidar (défaut 1,5 cm).
+// Usage : node scripts/mock-robot.mjs [--scene reelle|salle|pieces] [--chaises 0] [--port 8090]
+//         puis, dans l'appli : liaison Wi-Fi, IP du robot localhost:8090
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { composePoses, DEG } from '../src/core/pose.js';
-import { gaussian, mulberry32, rayCast, simulateScan } from '../src/core/sim.js';
+import { gaussian, mulberry32, rayCast, rectangle, simulateScan } from '../src/core/sim.js';
 import { CLASSROOM, ROOMS } from './lib/scenes.mjs';
 
 const arg = (name, def) => {
   const k = process.argv.indexOf(`--${name}`);
   return k > 0 ? process.argv[k + 1] : def;
 };
-const scene = arg('scene', 'pieces') === 'salle' ? CLASSROOM : ROOMS;
+const sceneName = arg('scene', 'reelle');
 const port = Number(arg('port', 8090));
+const noise = Number(arg('bruit', 0.015));
+
+/** Notre salle : segments de la carte de référence, et une pose de départ prise au sol. */
+function realRoom() {
+  const ref = JSON.parse(readFileSync(fileURLToPath(new URL('../data/reference/carte_reference.json', import.meta.url)), 'utf8'));
+  const segments = ref.segments.map(([x1, y1, x2, y2]) => ({ x1, y1, x2, y2 }));
+  const s = ref.scans.find((k) => k.name === 'scan_1102_180026.csv') ?? ref.scans.find((k) => !k.en_hauteur);
+  return { segments, start: { x: s.pose[0], y: s.pose[1], theta: s.pose[2] } };
+}
+
+const SCENES = {
+  reelle: realRoom,
+  salle: () => ({ segments: CLASSROOM, start: { x: 1.5, y: 2.2, theta: 0 } }),
+  pieces: () => ({ segments: ROOMS, start: { x: 1.5, y: 1.5, theta: 0 } }),
+};
+if (!SCENES[sceneName]) {
+  console.error(`Scène inconnue : ${sceneName} (reelle, salle ou pieces)`);
+  process.exit(1);
+}
+const built = SCENES[sceneName]();
+const scene = [...built.segments];
+
+// chaises : 4 pieds de 3 cm aux coins d'un carré de 40 cm, posées au hasard dans la boîte de la
+// scène, à plus de 60 cm du départ (le robot doit pouvoir démarrer)
+const nChaises = Number(arg('chaises', 0));
+const placeRng = mulberry32(42);
+{
+  const xs = built.segments.flatMap((w) => [w.x1, w.x2]);
+  const ys = built.segments.flatMap((w) => [w.y1, w.y2]);
+  for (let k = 0; k < nChaises; k++) {
+    const cx = Math.min(...xs) + 0.5 + placeRng() * (Math.max(...xs) - Math.min(...xs) - 1);
+    const cy = Math.min(...ys) + 0.5 + placeRng() * (Math.max(...ys) - Math.min(...ys) - 1);
+    if (Math.hypot(cx - built.start.x, cy - built.start.y) < 0.6) continue;
+    for (const [dx, dy] of [[-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]]) scene.push(...rectangle(cx + dx, cy + dy, cx + dx + 0.03, cy + dy + 0.03));
+  }
+}
 const BASE = { linear: 0.32, angular: 75, lateral: 0.27 }; // m/s, °/s, m/s à la vitesse 180
 const RADIUS = 0.17;
 const rng = mulberry32(5);
-let truth = scene === ROOMS ? { x: 1.5, y: 1.5, theta: 0 } : { x: 1.5, y: 2.2, theta: 0 };
+let truth = { ...built.start };
 let pwm = 180;
 let motion = { vx: 0, vy: 0, w: 0, until: 0 }; // vitesses dans le repère du robot (m/s, °/s)
 let last = Date.now();
@@ -60,7 +102,7 @@ function drive(vx, vy, w, ms) {
 
 function scanBinary() {
   advance();
-  const scan = simulateScan(scene, truth, { seed: seed++ });
+  const scan = simulateScan(scene, truth, { seed: seed++, noiseRange: noise });
   const pts = scan.points;
   const buf = Buffer.alloc(8 + 5 * pts.length);
   buf.writeUInt16LE(pts.length, 6); // pose laissée à 0 : le vrai robot ne connaît pas sa pose
@@ -111,4 +153,7 @@ createServer((req, res) => {
   if (['/pose', '/ping'].includes(url.pathname)) return ok();
   res.writeHead(404, cors);
   res.end();
-}).listen(port, () => console.log(`Faux robot sur http://localhost:${port} (scène ${scene === ROOMS ? 'trois pièces' : 'salle'}) : IP du robot dans l'appli = localhost:${port}`));
+}).listen(port, () => {
+  console.log(`Faux robot sur http://localhost:${port} : scène « ${sceneName} »${nChaises ? `, ${nChaises} chaises` : ''}, bruit ${(100 * noise).toFixed(1)} cm`);
+  console.log(`Départ : (${truth.x.toFixed(2)} ; ${truth.y.toFixed(2)} ; ${truth.theta.toFixed(1)}°). Dans l'appli : liaison Wi-Fi, IP du robot = localhost:${port}`);
+});

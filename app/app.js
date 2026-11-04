@@ -1482,6 +1482,54 @@ const DRIVE = {
 /** Liaison avec le robot : 'usb' (câble, relais live.py) ou 'wifi'. */
 const viaUsb = () => $('robotLink').value === 'usb';
 
+/** Choix de liaison retenu d'une visite à l'autre (si le navigateur le permet). */
+function saveLink() {
+  try {
+    localStorage.setItem('ld06.robotLink', $('robotLink').value);
+  } catch {
+    /* stockage indisponible : le choix vaut pour cette page seulement */
+  }
+}
+
+/** Le relais USB (live.py) répond-il ? « node serve.mjs » répond 404 sur /live/cmd. */
+async function relayPresent() {
+  try {
+    const res = await fetch('/live/cmd?c=X', { cache: 'no-store', signal: AbortSignal.timeout(1000) });
+    return res.status !== 404;
+  } catch {
+    return false;
+  }
+}
+
+/** Le robot Wi-Fi (ESP32_RobotWifi) répond-il à /ping ? */
+async function wifiPresent() {
+  try {
+    const res = await fetch(`http://${$('robotIp').value.trim()}/ping`, { cache: 'no-store', signal: AbortSignal.timeout(1500) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Avant de démarrer : si la liaison choisie ne répond pas mais l'autre oui, on bascule (USB choisi
+ * alors que le PC est sur le Wi-Fi du robot, ou l'inverse), avec un message.
+ */
+async function chooseLink() {
+  if (viaUsb()) {
+    if (await relayPresent()) return;
+    if (await wifiPresent()) {
+      $('robotLink').value = 'wifi';
+      saveLink();
+      toast('Relais USB absent mais robot trouvé en Wi-Fi : liaison Wi-Fi choisie');
+    }
+  } else if (!(await wifiPresent()) && (await relayPresent())) {
+    $('robotLink').value = 'usb';
+    saveLink();
+    toast('Robot Wi-Fi injoignable mais relais USB présent : liaison USB choisie');
+  }
+}
+
 /** Ordre moteur par le câble USB : le relais live.py le transmet à ESP32_RobotUSB. */
 async function usbCmd(c) {
   let res;
@@ -1499,7 +1547,7 @@ const robotSetSpeed = (v) => (viaUsb() ? usbCmd(`V${v}`) : robotGet(`/speed?v=${
 const KEEPALIVE_MS = 150; // renvoi de la commande pendant l'appui
 const HOLD_MS = 400; // le robot s'arrête seul si plus rien n'arrive pendant ce temps
 const ZERO = { x: 0, y: 0, theta: 0 };
-const teleop = { running: false, active: null, since: 0, timer: null, odom: { ...ZERO }, calib: null, lost: false, rate: 0, pwm: 140, count: 0, t0: 0 };
+const teleop = { running: false, starting: false, active: null, since: 0, timer: null, odom: { ...ZERO }, calib: null, lost: false, rate: 0, pwm: 140, count: 0, t0: 0 };
 
 /** Déplacement (repère du robot) d'un mouvement tenu pendant dt secondes, avec les vitesses estimées. */
 function motionDelta(mv, dt) {
@@ -1535,8 +1583,12 @@ function sendDrive() {
 
 function pressDrive(id) {
   if (teleop.active?.id === id || explo.running) return;
+  if (!teleop.running) {
+    // démarrer d'abord (choix de la liaison compris), puis envoyer la commande
+    if (!teleop.starting) startTeleop().then(() => teleop.running && pressDrive(id));
+    return;
+  }
   const mv = { ...DRIVE[id], id };
-  if (!teleop.running) startTeleop();
   integrateDrive();
   // nouveau segment d'étalonnage si le type de mouvement change
   if (teleop.calib?.kind !== mv.kind) teleop.calib = { kind: mv.kind, amount: 0, start: state.slamLivePose ? { ...state.slamLivePose } : null };
@@ -1612,7 +1664,14 @@ async function teleopLoop() {
 }
 
 async function startTeleop() {
-  if (teleop.running || explo.running) return;
+  if (teleop.running || teleop.starting || explo.running) return;
+  teleop.starting = true;
+  $('btnTeleop').textContent = 'Connexion…';
+  try {
+    await chooseLink();
+  } finally {
+    teleop.starting = false;
+  }
   teleop.running = true;
   Object.assign(teleop, { count: 0, t0: performance.now() });
   $('btnTeleop').textContent = 'Arrêter le SLAM';
@@ -1911,7 +1970,10 @@ window.addEventListener('keydown', (ev) => {
     stopExplo();
     return;
   }
-  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName) || $('pasteDialog').open) return;
+  // seuls les champs où l'on tape du texte gardent les touches (pas les listes, curseurs, cases)
+  const el = document.activeElement;
+  const typing = el?.tagName === 'TEXTAREA' || (el?.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes(el.type));
+  if (typing || $('pasteDialog').open) return;
   // pilotage au clavier, mêmes touches que RobotControl : I/K avancer/reculer, J/L glisser, U/O
   // tourner ; le robot roule tant que la touche est maintenue (les répétitions sont ignorées)
   if ($('driveKeys').checked && DRIVE_KEYS[ev.key.toLowerCase()]) {
@@ -2005,6 +2067,18 @@ for (const id of Object.keys(DRIVE)) {
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(type, () => releaseDrive(id));
 }
 $('btnTeleop').onclick = () => (teleop.running ? stopTeleop() : startTeleop());
+try {
+  const link = localStorage.getItem('ld06.robotLink');
+  if (link === 'usb' || link === 'wifi') $('robotLink').value = link;
+} catch {
+  /* stockage indisponible */
+}
+$('robotLink').addEventListener('change', () => {
+  saveLink();
+  if (teleop.running) stopTeleop(); // changer de liaison en marche : on repart proprement
+  $('robotLink').blur(); // rendre les touches de pilotage tout de suite
+  toast(viaUsb() ? 'Liaison USB : lancer « python scripts/live.py »' : `Liaison Wi-Fi : robot ${$('robotIp').value.trim()} (Wi-Fi DON MIGUEL3)`);
+});
 $('driveSpeed').addEventListener('change', () => setDrivePwm(Number($('driveSpeed').value)));
 $('driveSpeed').addEventListener('input', () => ($('driveSpeedVal').textContent = $('driveSpeed').value));
 $('slamLive').onchange = () => {

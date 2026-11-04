@@ -32,6 +32,7 @@ export const DEFAULT_SLAM = Object.freeze({
   fastTracking: true, // suivi par Gauss-Newton d'abord, multi-résolution en secours
   fastInliers: 0.7, // part des points sur la carte pour se contenter du suivi rapide
   relocalize: true, // relocalisation globale si le suivi échoue
+  relocEvery: 1, // scans minimum entre deux tentatives de relocalisation (coûteuse : 0,5 à 1 s)
   priorXY: 1, // m : écart-type de l'a priori de position quand le mouvement est connu (odométrie)
   priorTheta: 20, // degrés : idem pour l'orientation
   keyDist: 0.2, // m : nouveau scan clé après ce déplacement
@@ -42,6 +43,7 @@ export const DEFAULT_SLAM = Object.freeze({
   loopWindow: { xyRange: 1, thRange: 20 }, // recherche autour de la pose estimée (dérive tolérée)
   loopMinInliers: 0.6, // part des points du nouveau scan sur l'ancien pour accepter la boucle
   loopEvery: 5, // scans clés minimum entre deux fermetures de boucle
+  loopFullSearch: true, // recherche large si le recalage rapide échoue (coûteuse ; false en direct)
   anisotropic: true, // précision des liens par direction, d'après les normales des points (sinon σ fixes)
   sigmaPoint: 0.03, // m : bruit supposé d'un point (bruit du lidar + erreurs de recalage)
   sigmaTrack: { xy: 0.05, theta: 1 }, // précision d'un lien de suivi si anisotropic = false (m, degrés)
@@ -114,6 +116,7 @@ export class Slam {
     this.vector = new VectorMap([], { absence: false });
     this.last = null; // dernière pose estimée
     this.lastLoop = -Infinity;
+    this.lastReloc = -Infinity;
     this.localRef = null;
     this.globalRef = null;
   }
@@ -178,7 +181,8 @@ export class Slam {
     const i = localize(ref, points, m.pose, 'icp');
     let best = i.inliers >= m.inliers ? i : m;
     let mode = 'suivi';
-    if (best.inliers < this.o.minInliers && this.o.relocalize) {
+    if (best.inliers < this.o.minInliers && this.o.relocalize && index - this.lastReloc >= this.o.relocEvery) {
+      this.lastReloc = index;
       // avec un mouvement connu, la relocalisation cherche autour de la pose prédite (a priori)
       const g = this.relocalize(points, odom ? { pose: predicted, sigmaXY: this.o.priorXY, sigmaTheta: this.o.priorTheta } : null);
       // relocalisation acceptée seulement si elle est fiable ET colle à la carte (sinon : symétrique
@@ -225,9 +229,16 @@ export class Slam {
     for (const { j } of candidates) {
       const old = this.keyframes[j];
       const ref = scanReference(toWorld(old.points, old.pose));
-      const m = localize(ref, kf.points, kf.pose, 'multires', this.o.loopWindow);
-      const r = localize(ref, kf.points, m.pose, 'icp');
-      const best = r.inliers >= m.inliers ? r : m;
+      // recalage rapide d'abord (Gauss-Newton puis ICP, quelques ms) ; la recherche large
+      // (multi-résolution ±1 m, ±20°, plusieurs centaines de ms) seulement s'il échoue et si permise
+      const fast = localize(ref, kf.points, kf.pose, 'gaussnewton');
+      let best = localize(ref, kf.points, fast.pose, 'icp');
+      if (fast.inliers > best.inliers) best = fast;
+      if (best.inliers < this.o.loopMinInliers && this.o.loopFullSearch) {
+        const m = localize(ref, kf.points, kf.pose, 'multires', this.o.loopWindow);
+        const r = localize(ref, kf.points, m.pose, 'icp');
+        best = r.inliers >= m.inliers ? r : m;
+      }
       if (best.inliers < this.o.loopMinInliers) continue;
       const link = this.o.anisotropic ? { info: scanInformation(kf.points, this.o.sigmaPoint) } : { sigma: this.o.sigmaLoop };
       this.edges.push({ from: j, to: k, z: relative(old.pose, best.pose), ...link, kind: 'boucle' });

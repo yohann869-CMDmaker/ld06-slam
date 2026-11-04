@@ -344,7 +344,7 @@ async function loadRoomScans() {
 // sur /live (Server-Sent Events). Le scan courant est dessiné en continu à la pose du scan
 // sélectionné ; « Ajouter ce scan » (ou Espace) le fige dans la liste.
 
-const live = { source: null, text: null, scan: null, time: 0, status: null };
+const live = { source: null, text: null, scan: null, time: 0, status: null, pending: false };
 
 function liveStatus(msg) {
   $('liveStat').textContent = msg;
@@ -371,9 +371,16 @@ async function startLive() {
     live.time = Date.now();
     $('liveAdd').disabled = false;
     renderLiveStatus();
-    if ($('slamLive').checked) slamLiveStep();
     if (firstScan && !state.scans.length) fitView();
-    else draw();
+    // un seul calcul en attente, sur le scan le plus récent : si le SLAM est plus lent que le
+    // lidar, les scans intermédiaires sont sautés au lieu de s'empiler (sinon la page se bloque)
+    if (live.pending) return;
+    live.pending = true;
+    setTimeout(() => {
+      live.pending = false;
+      if ($('slamLive').checked) slamLiveStep();
+      else draw();
+    }, 0);
   });
   live.source.onerror = () => liveStatus('Relais live.py injoignable (arrêté ?), nouvel essai…');
 }
@@ -1207,7 +1214,7 @@ function slamLiveStep() {
   if (state.slamBusy || !live.scan) return;
   state.slamBusy = true;
   try {
-    state.slam ??= new Slam();
+    state.slam ??= liveSlam();
     const slam = state.slam;
     const first = slam.keyframes.length ? null : state.selected?.pose ?? { x: 0, y: 0, theta: 0 };
     const prev = state.slamLivePose;
@@ -1231,7 +1238,7 @@ function slamLiveStep() {
     }
     if (r.loop) for (const e of state.scans) if (e.slamIndex != null) e.pose = { ...slam.trajectory[e.slamIndex].pose };
     state.slamTrack = slam.keyframes.map((kf) => kf.pose);
-    if (r.keyframe || r.loop) poseChanged();
+    if (r.keyframe || r.loop) showSlamMaps(slam);
     const kf = slam.keyframes.at(-1).pose;
     const sinceKf = 100 * Math.hypot(r.pose.x - kf.x, r.pose.y - kf.y);
     $('slamStat').innerHTML = `SLAM en direct : pose ${fmtPose(r.pose)} · dernier pas ${step ? `${stepCm.toFixed(0)} cm / ${Math.abs(step.theta).toFixed(0)}°` : '–'}${fast ? ' · <strong class="warn">trop vite, ralentir</strong>' : ''} · ${sinceKf.toFixed(0)} cm depuis le dernier scan clé<br>${slam.keyframes.length} scans clés · dernier scan ${r.mode} (${Math.round(100 * r.inliers)} % sur la carte, ${Math.round(r.time)} ms)${slam.loops.length ? ` · ${slam.loops.length} boucle(s)` : ''}`;
@@ -1240,6 +1247,30 @@ function slamLiveStep() {
     state.slamBusy = false;
   }
 }
+
+/**
+ * Pendant le SLAM en direct (USB, Wi-Fi) : on affiche les cartes que le SLAM construit déjà scan par
+ * scan, au lieu de tout reconstruire à chaque scan clé (grid map, carte vectorielle et vue propre
+ * refaites avec TOUS les scans : plusieurs secondes au-delà de 50 scans, la page se bloquait). La
+ * reconstruction complète se fait une seule fois, à l'arrêt du SLAM (finishLiveSlam).
+ */
+function showSlamMaps(slam) {
+  state.grid = slam.grid;
+  state.gridImage = null;
+  state.vector = slam.vector;
+  Object.assign(state, { gridClean: null, gridCleanImage: null, gridLoc: null, vectorClean: null, corners: null });
+}
+
+/** Fin du SLAM en direct : cartes complètes (et vue propre) reconstruites une fois. */
+function finishLiveSlam() {
+  if (state.scans.some((e) => e.slamIndex != null)) poseChanged();
+}
+
+/**
+ * SLAM pour le direct : la recherche dans toute la salle (0,5 à 1 s) au plus tous les 10 scans, et
+ * les fermetures de boucle par recalage rapide seulement (la recherche large bloquait la page 0,6 s).
+ */
+const liveSlam = () => new Slam({ relocEvery: 10, loopFullSearch: false });
 
 function resetSlam() {
   Object.assign(state, { slam: null, slamTrack: null, slamLivePose: null });
@@ -1380,7 +1411,7 @@ function robotSpeeds() {
 /** Scan Wi-Fi, SLAM avec l'odométrie de la dernière commande, étalonnage, scans clés dans la liste. */
 async function wifiScanStep() {
   const scan = parseRobotBinary(await robotGet('/scan', true), captureName());
-  const slam = (state.slam ??= new Slam());
+  const slam = (state.slam ??= liveSlam());
   const first = slam.keyframes.length ? null : state.selected?.pose ?? { x: 0, y: 0, theta: 0 };
   const r = slam.addScan(scan, wifi.odom, first);
   let measured = null;
@@ -1401,7 +1432,7 @@ async function wifiScanStep() {
     select(entry);
   }
   if (r.loop) for (const e of state.scans) if (e.slamIndex != null) e.pose = { ...slam.trajectory[e.slamIndex].pose };
-  if (r.keyframe || r.loop) poseChanged();
+  if (r.keyframe || r.loop) showSlamMaps(slam);
   state.slamTrack = slam.keyframes.map((kf) => kf.pose);
   state.slamLivePose = r.pose;
   return { scan, r, slam, measured };
@@ -1594,6 +1625,7 @@ function stopTeleop() {
   teleop.running = false;
   if (viaUsb()) $('slamLive').checked = false;
   $('btnTeleop').textContent = 'Démarrer le SLAM';
+  finishLiveSlam();
 }
 
 /** Curseur de vitesse : nouvelle consigne au robot ; les vitesses estimées suivent la même proportion. */
@@ -1969,6 +2001,7 @@ $('slamLive').onchange = () => {
   $('slamStat').textContent = $('slamLive').checked
     ? 'SLAM en direct : déplacer doucement le robot ; un scan clé est ajouté tous les 20 cm ou 10°.'
     : 'SLAM en direct arrêté.';
+  if (!$('slamLive').checked) finishLiveSlam();
   draw();
 };
 $('vecMinObs').onchange = () => {

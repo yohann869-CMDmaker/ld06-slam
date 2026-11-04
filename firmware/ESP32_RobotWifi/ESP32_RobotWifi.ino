@@ -48,7 +48,7 @@ const int LIDAR_PWM = 32;
 
 // point d'accès Wi-Fi (le PC s'y connecte ; adresse du robot : 192.168.4.1)
 const char* ssid = "DON MIGUEL3";
-const char* password = "12345678";
+const char* password = "azertyui";
 
 // ============================================================
 

@@ -120,7 +120,11 @@ La carte brute contient les pieds de chaises et de tables, des sacs et des jambe
 **Ce qui reste à corriger.** Après le filtrage 1, la carte est propre mais incomplète :
 
 - un **coin de la salle était inaccessible**, à cause du monde présent ;
-- **un mur n'a pas été détecté** ;
+- **un mur n'a pas été détecté** : des morceaux du mur du bas ;
+- le **bureau du prof**, dans la partie gauche, n'est pas collé au mur du décroché en L. À hauteur du
+  robot, ses faces ressemblent pourtant à des murs, qui fermeraient la salle devant lui ;
+- un **petit décroché** du mur, dans le coin en bas à droite : le mur de droite revient à
+  l'horizontale vers le mur du bas. Le lidar n'en a vu qu'un morceau d'environ 40 cm ;
 - des meubles collés aux murs cachent la paroi.
 
 **Méthode.** La reconstruction (`reconstructRoom`) s'inspire des travaux de reconstruction de
@@ -143,7 +147,10 @@ plans en intérieur encombré :
 2. **Droites candidates.** Deux sources :
    - les pics des histogrammes des cellules occupées, quand ils cumulent au moins 1,5 m ;
    - les limites de l'espace vu libre. Elles donnent la place d'un mur que le lidar n'a pas
-     détecté : au-delà de la limite, aucun rayon n'est passé.
+     détecté : au-delà de la limite, aucun rayon n'est passé ;
+   - les **décrochés** : un court morceau de mur vu (30 cm au moins), accroché à un mur extérieur,
+     est un retour du mur. Le coin entre ce morceau et le mur extérieur parallèle est hors de la
+     salle, même si quelques rayons parasites l'ont vu libre. C'est le coin en bas à droite.
 3. **Rectangles.** Les droites découpent la carte en rectangles. Un rectangle est **intérieur** à
    trois conditions :
    - il a été vu libre, sur au moins 30 % de ses cellules ;
@@ -152,6 +159,16 @@ plans en intérieur encombré :
 
    Cette dernière condition est une diffusion depuis le trajet. L'espace vu à travers une porte,
    derrière un mur, est vu libre, mais n'appartient pas à la salle.
+
+   Un **meuble isolé** n'arrête pas la diffusion, car ce n'est pas un mur. Un objet est un meuble
+   isolé à trois conditions :
+   - il est compact : 1,5 m au plus de côté ;
+   - il est épais : plus de 25 cm, deux faces vues ;
+   - il est loin des murs extérieurs.
+
+   Les morceaux distants de moins de 30 cm sont d'abord regroupés en un seul objet, pour que les
+   bouts d'un même mur se recollent et restent un mur. C'est ainsi que l'espace entre le bureau du
+   prof et le mur de gauche reste dans la salle.
 4. **Complétion** : on ajoute à la salle ce que le robot n'a pas pu voir.
    - Un rectangle jamais vu, collé à l'intérieur sans mur entre eux, devient intérieur : c'est le
      cas d'un coin inaccessible.
@@ -168,10 +185,10 @@ plans en intérieur encombré :
 
 | Mesure | Valeur |
 | --- | --- |
-| Surface de la salle | 106,9 m² |
-| Murs observés | 48,9 m, à **3,0 cm** de la référence en médiane, 92 % à moins de 15 cm |
-| Murs reconstruits (jamais vus par le lidar) | 4,9 m, à **4,1 cm** de la référence en médiane, 78 % à moins de 15 cm |
-| Meubles | 7, dont la table du milieu |
+| Surface de la salle | 109,5 m² |
+| Murs observés | 49,1 m, à **2,8 cm** de la référence en médiane, 99 % à moins de 15 cm |
+| Murs reconstruits (jamais vus par le lidar) | 4,3 m, à **3,9 cm** de la référence en médiane, 97 % à moins de 15 cm |
+| Meubles | 11, dont le bureau du prof ; la table du milieu forme un rectangle à part |
 
 | Reconstruction (repère du SLAM) | Carte finale propre |
 | --- | --- |
@@ -184,9 +201,11 @@ reconstruits en rouge pointillé, meubles en bleu.*
 
 **Ce que montre la figure.**
 
-- Le contour suit celui de la référence, y compris la forme en L de la salle.
-- Les murs que le robot n'a pas vus sont reconstruits à 4 cm près : le coin en bas à droite et des
-  morceaux du mur du bas.
+- Le contour suit celui de la référence partout, y compris la forme en L de la salle.
+- Les morceaux du mur du bas, non détectés, sont reconstruits à 4 cm près.
+- Le décroché du coin en bas à droite est retrouvé : le mur de droite revient à l'horizontale vers
+  le mur du bas.
+- Le bureau du prof est un meuble, posé dans la salle, à distance du mur du décroché en L.
 - La table du milieu forme un rectangle fermé.
 
 **Trois étapes ont été nécessaires pour y arriver.** Nous les avons ajoutées l'une après l'autre,
@@ -196,14 +215,19 @@ en regardant le résultat à chaque fois.
 | --- | --- | --- | --- |
 | Rectangles vus libres, dans le cadre | 129 m² | à 100 cm de la référence | l'espace vu par les portes, hors de la forme en L, compté dans la salle |
 | + diffusion depuis le trajet | 105 m² | à 4 cm | meubles collés au mur de droite pris pour le mur |
-| + niches au bord de la salle | **107 m²** | à 4 cm | (version retenue) |
+| + niches au bord de la salle | 107 m² | à 4 cm | le bureau du prof fermait une niche à gauche ; le coin du décroché en bas à droite était rempli |
+| + meubles isolés et décrochés | **109,5 m²** | à 3,9 cm (97 % à moins de 15 cm) | (version retenue) |
+
+Les deux derniers défauts ont été signalés par Yohan, qui connaît la salle : le bureau du prof
+n'est pas collé au mur, et le mur de droite fait un décroché avant de rejoindre le mur du bas.
+Les deux règles ajoutées ne reçoivent aucune position à la main : elles se servent de ce que le
+lidar a vu. Ce sont les faces du bureau, vues libres tout autour, et le morceau de 40 cm du
+décroché.
 
 **Limites.**
 
-- **Niche à gauche.** Une niche d'environ 1,9 × 1,5 m, juste sous le décroché de la forme en L,
-  reste hors de la salle. À la hauteur du robot, le SLAM y voit des surfaces. La référence, elle,
-  a vu le mur du fond grâce aux scans en hauteur. Aucune droite, à hauteur du robot, ne donne la
-  place de ce mur.
+- **Meubles le long des murs.** Un grand meuble contre le mur de droite, en haut, est dessiné comme
+  meuble ; ce qu'il est n'a pas été vérifié.
 - **Hypothèse Manhattan.** Le tableau posé en diagonale, dans le coin en bas à gauche, n'apparaît
   pas dans la carte finale. Une salle à murs obliques demanderait de chercher plusieurs directions.
 - **Seuils réglés sur cette salle.** Les seuils (40 cm pour un objet, 30 % de libre, 4 m² pour une

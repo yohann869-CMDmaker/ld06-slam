@@ -71,8 +71,10 @@ le vrai robot.
   `docs/slam_usb_20261104.md`.
 - Texte pour le rapport : `docs/rapport_slam_reel.md` (premier résultat comparé à la référence,
   démarche et trajet, filtres, reconstruction inspirée d'Okorn 2010, Mura 2014, Ochmann 2016/2019).
-- Reste ouvert : niche de 1,9 × 1,5 m à gauche non rattachée (à confirmer avec Yohan : est-ce le
-  coin inaccessible ?) ; échelle absolue à vérifier au mètre ruban.
+- Corrigé d'après Yohan : le bureau du prof (zone à gauche) est un meuble isolé, pas un mur ; le coin
+  en bas à droite est un décroché (le mur de droite revient à l'horizontale). Le contour suit
+  maintenant la référence partout (murs reconstruits à 3,9 cm). Reste : échelle absolue à vérifier
+  au mètre ruban.
 
 ## À faire pour le rendu (par priorité)
 

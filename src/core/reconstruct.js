@@ -14,11 +14,13 @@
 //   1. direction dominante des murs (segments de la carte vectorielle), carte redressée ;
 //   2. droites des murs : pics des histogrammes des cellules occupées le long de chaque axe ; plus les
 //      limites de l'espace vu libre (un mur que le lidar n'a pas détecté arrête quand même la vue :
-//      le bord du libre donne sa position) ;
+//      le bord du libre donne sa position) ; plus les décrochés : un court morceau de mur accroché à
+//      un mur extérieur (coin rentrant), le coin derrière lui est hors de la salle ;
 //   3. les droites découpent l'espace en rectangles ; un rectangle assez vu libre est INTÉRIEUR,
 //      s'il est atteignable depuis le trajet du robot sans traverser de mur observé (diffusion depuis
 //      le trajet, comme la diffusion de Mura et al.) : l'espace vu par une porte, derrière un mur,
-//      n'appartient pas à la salle ;
+//      n'appartient pas à la salle ; un meuble isolé (objet compact et épais, loin des murs : bureau)
+//      ne compte pas comme un mur, l'espace vu libre derrière lui reste dans la salle ;
 //   4. complétion : un rectangle non vu qui touche l'intérieur sans mur entre eux (aucun point
 //      occupé sur la frontière commune) est intérieur aussi : zone cachée (coin inaccessible, personnes),
 //      pas l'extérieur ; un rectangle entouré d'intérieur (sous un meuble) aussi ;
@@ -109,6 +111,12 @@ export const DEFAULT_ROOM = Object.freeze({
   wallEvidence: 0.25, // part d'une frontière couverte de points occupés pour y voir un mur
   completeMaxArea: 12, // m² : taille maximale d'une zone cachée complétée
   nicheMaxArea: 4, // m² : niche coupée du trajet par un obstacle (armoire, personnes), rattachée à la salle
+  shortWall: 0.3, // m : morceau de mur vu, accroché à un mur extérieur (décroché de la salle)
+  maxObject: 1.5, // m : objet compact (plus grand côté), loin du cadre : un meuble (bureau), pas un mur
+  frameGap: 0.3, // m : un objet plus proche du cadre peut être un morceau de mur
+  thinWall: 0.25, // m : objet plus mince (petit côté) : un morceau de mur vu de face, pas un meuble
+  joinObject: 0.3, // m : morceaux plus proches regroupés en un seul objet
+  aroundFree: 0.5, // part vue libre minimale de chacun des 4 côtés d'un meuble isolé
 });
 
 /** Direction dominante des murs (degrés dans [0, 90[), affinée au dixième de degré. */
@@ -252,8 +260,6 @@ export function reconstructRoom(grid, segments, options = {}) {
   };
   const linesU = addEdges(wallU, edgeU, u0);
   const linesV = addEdges(wallV, edgeV, v0);
-  const xs = [u0, ...linesU.map((l) => l.pos), u0 + nu * o.bin];
-  const ys = [v0, ...linesV.map((l) => l.pos), v0 + nv * o.bin];
   // cadre de la salle : droites extrêmes parmi les plus longues ; rien d'intérieur au-delà (les
   // faisceaux qui sortent par les fenêtres ou les portes ne font pas partie de la salle)
   const frameOf = (lines) => {
@@ -262,6 +268,52 @@ export function reconstructRoom(grid, segments, options = {}) {
   };
   const [fu0, fu1] = frameOf(linesU);
   const [fv0, fv1] = frameOf(linesV);
+  // décrochés : un court morceau de mur vu (trop court pour un pic d'histogramme), accroché à un mur
+  // extérieur du cadre, est un retour du mur (coin rentrant de la salle) ; il donne une droite
+  const notches = []; // décrochés : { along, pos, s0, s1, g (mur du cadre où il s'accroche), f (mur parallèle) }
+  const shortLines = (along, lines, f0, f1, g0, g1) => {
+    // along = 'u' : morceaux horizontaux (droites v = cste), accrochés au cadre en u (g0, g1)
+    const nA = along === 'u' ? nu : nv;
+    const nB = along === 'u' ? nv : nu;
+    const at = (a, b) => (along === 'u' ? occ[b * nu + a] : occ[a * nu + b]);
+    const origin = along === 'u' ? v0 : u0;
+    const originA = along === 'u' ? u0 : v0;
+    const minRun = Math.round(o.shortWall / o.bin);
+    for (let b = 1; b < nB - 1; b++) {
+      const pos = origin + (b + 0.5) * o.bin;
+      if (pos <= f0 + o.merge || pos >= f1 - o.merge || lines.some((l) => Math.abs(l.pos - pos) < o.merge)) continue;
+      let start = -1;
+      let gap = 0;
+      for (let a = 0; a <= nA; a++) {
+        const hit = a < nA && (at(a, b - 1) || at(a, b) || at(a, b + 1));
+        if (hit) {
+          if (start < 0) start = a;
+          gap = 0;
+          continue;
+        }
+        if (start >= 0 && ++gap > 1) {
+          const end = a - gap;
+          const s0 = originA + start * o.bin;
+          const s1 = originA + (end + 1) * o.bin;
+          const attached = Math.abs(s0 - g0) < 0.15 || Math.abs(s1 - g0) < 0.15 || Math.abs(s0 - g1) < 0.15 || Math.abs(s1 - g1) < 0.15;
+          // le coin rentrant est entre le morceau et le mur du cadre parallèle le plus proche (1,5 m au plus)
+          const f = Math.abs(pos - f0) < Math.abs(pos - f1) ? f0 : f1;
+          if (end - start + 1 >= minRun && attached && Math.abs(pos - f) <= 1.5 && !lines.some((l) => Math.abs(l.pos - pos) < o.merge)) {
+            lines.push({ pos, weight: (end - start + 1) * o.bin, kind: 'décroché' });
+            const g = [g0, g1].reduce((x, y) => (Math.min(Math.abs(s0 - x), Math.abs(s1 - x)) <= Math.min(Math.abs(s0 - y), Math.abs(s1 - y)) ? x : y));
+            notches.push({ along, pos, s0, s1, g, f });
+          }
+          start = -1;
+          gap = 0;
+        }
+      }
+    }
+    return lines.sort((p, q) => p.pos - q.pos);
+  };
+  shortLines('u', linesV, fv0, fv1, fu0, fu1);
+  shortLines('v', linesU, fu0, fu1, fv0, fv1);
+  const xs = [u0, ...linesU.map((l) => l.pos), u0 + nu * o.bin];
+  const ys = [v0, ...linesV.map((l) => l.pos), v0 + nv * o.bin];
   const inFrame = (a, b) => xs[a] >= fu0 - 1e-6 && xs[a + 1] <= fu1 + 1e-6 && ys[b] >= fv0 - 1e-6 && ys[b + 1] <= fv1 + 1e-6;
 
   // 3. rectangles de l'arrangement, étiquetés par la part de cellules vues libres
@@ -276,9 +328,75 @@ export function reconstructRoom(grid, segments, options = {}) {
       if (freeFrac[b * NX + a] >= o.insideFree && inFrame(a, b)) lab[b * NX + a] = 'intérieur';
     }
   }
+  // coins rentrants : les rectangles entre un décroché et le mur parallèle du cadre sont hors de la
+  // salle, même vus libres (rayons parasites) ; ni la diffusion ni la complétion n'y entrent
+  const blocked = new Uint8Array(NX * NY);
+  for (const n of notches) {
+    const along = n.along === 'u' ? xs : ys;
+    const free = Math.abs(n.s0 - n.g) < Math.abs(n.s1 - n.g) ? n.s1 : n.s0; // bout libre du morceau
+    const snap = along.reduce((x, y) => (Math.abs(y - free) < Math.abs(x - free) ? y : x));
+    const end = Math.abs(snap - free) <= 0.3 ? snap : free;
+    const [a0, a1] = [Math.min(end, n.g), Math.max(end, n.g)];
+    const [p0, p1] = [Math.min(n.pos, n.f), Math.max(n.pos, n.f)];
+    for (let b = 0; b < NY; b++) {
+      for (let a = 0; a < NX; a++) {
+        const [r0, r1, q0, q1] = n.along === 'u' ? [xs[a], xs[a + 1], ys[b], ys[b + 1]] : [ys[b], ys[b + 1], xs[a], xs[a + 1]];
+        if (r0 >= a0 - 1e-6 && r1 <= a1 + 1e-6 && q0 >= p0 - 1e-6 && q1 <= p1 + 1e-6) {
+          blocked[b * NX + a] = 1;
+          lab[b * NX + a] = 'extérieur';
+        }
+      }
+    }
+  }
+  // meubles isolés : un objet compact (plus grand côté au plus maxObject, épais), loin des murs du cadre
+  // (bureau du prof au milieu de la salle), n'est pas un mur ; il ne ferme pas l'espace derrière lui
+  const wallOcc = occ.slice();
+  {
+    // morceaux à moins de joinObject l'un de l'autre : un même objet (les bouts d'un mur se recollent)
+    const R = Math.round(o.joinObject / o.bin);
+    const seen = new Uint8Array(nu * nv);
+    for (let start = 0; start < nu * nv; start++) {
+      if (!occ[start] || seen[start]) continue;
+      const comp = [start];
+      seen[start] = 1;
+      let i0 = Infinity;
+      let i1 = -Infinity;
+      let j0 = Infinity;
+      let j1 = -Infinity;
+      for (let q = 0; q < comp.length; q++) {
+        const i = comp[q] % nu;
+        const j = (comp[q] - i) / nu;
+        i0 = Math.min(i0, i);
+        i1 = Math.max(i1, i);
+        j0 = Math.min(j0, j);
+        j1 = Math.max(j1, j);
+        for (let dj = -R; dj <= R; dj++) {
+          for (let di = -R; di <= R; di++) {
+            const n = (j + dj) * nu + i + di;
+            if (i + di >= 0 && i + di < nu && j + dj >= 0 && j + dj < nv && occ[n] && !seen[n]) {
+              seen[n] = 1;
+              comp.push(n);
+            }
+          }
+        }
+      }
+      const b = { u0: u0 + i0 * o.bin, u1: u0 + (i1 + 1) * o.bin, v0: v0 + j0 * o.bin, v1: v0 + (j1 + 1) * o.bin };
+      // un meuble a de l'épaisseur (deux faces vues) ; un objet mince est un morceau de mur
+      const compact = Math.max(b.u1 - b.u0, b.v1 - b.v0) <= o.maxObject && Math.min(b.u1 - b.u0, b.v1 - b.v0) > o.thinWall;
+      const farFromFrame = b.u0 > fu0 + o.frameGap && b.u1 < fu1 - o.frameGap && b.v0 > fv0 + o.frameGap && b.v1 < fv1 - o.frameGap;
+      // un meuble est posé dans la salle : vu libre tout autour (bandes de 30 cm sur ses 4 côtés) ;
+      // un morceau de mur a l'extérieur (jamais vu) d'un côté
+      const band = (ua, va, ub, vb) => sum(Ifree, ua, va, ub, vb) / Math.max(((ub - ua) * (vb - va)) / (o.bin * o.bin), 1);
+      const m = 0.3;
+      const around = [band(b.u0 - m, b.v0, b.u0, b.v1), band(b.u1, b.v0, b.u1 + m, b.v1), band(b.u0, b.v0 - m, b.u1, b.v0), band(b.u0, b.v1, b.u1, b.v1 + m)];
+      const standalone = Math.min(...around) >= o.aroundFree;
+      if (compact && farFromFrame && standalone) for (const k of comp) wallOcc[k] = 0;
+    }
+  }
+  const Iwall = integral(wallOcc);
   // mur sur la frontière commune de deux rectangles voisins : points occupés le long (± 1 pas)
-  const wallOnU = (u, va, vb) => sum(Iocc, u - o.bin * 1.5, va, u + o.bin * 1.5, vb) / Math.max((vb - va) / o.bin, 1);
-  const wallOnV = (v, ua, ub) => sum(Iocc, ua, v - o.bin * 1.5, ub, v + o.bin * 1.5) / Math.max((ub - ua) / o.bin, 1);
+  const wallOnU = (u, va, vb) => sum(Iwall, u - o.bin * 1.5, va, u + o.bin * 1.5, vb) / Math.max((vb - va) / o.bin, 1);
+  const wallOnV = (v, ua, ub) => sum(Iwall, ua, v - o.bin * 1.5, ub, v + o.bin * 1.5) / Math.max((ub - ua) / o.bin, 1);
   const isIn = (a, b) => a >= 0 && b >= 0 && a < NX && b < NY && lab[b * NX + a] !== 'extérieur';
   // frontière commune de deux rectangles voisins (a, b) -> (a2, b2) : part couverte de points occupés
   const between = (a, b, a2, b2) =>
@@ -297,7 +415,7 @@ export function reconstructRoom(grid, segments, options = {}) {
     for (const p of o.seeds) {
       const r = toRot(p.x, p.y);
       const ab = rectAt(r.u, r.v);
-      if (ab && !reached[ab[1] * NX + ab[0]]) {
+      if (ab && !reached[ab[1] * NX + ab[0]] && !blocked[ab[1] * NX + ab[0]]) {
         reached[ab[1] * NX + ab[0]] = 1;
         queue.push(ab);
         if (lab[ab[1] * NX + ab[0]] === 'extérieur') lab[ab[1] * NX + ab[0]] = 'intérieur';
@@ -306,7 +424,7 @@ export function reconstructRoom(grid, segments, options = {}) {
     for (let q = 0; q < queue.length; q++) {
       const [a, b] = queue[q];
       for (const [a2, b2] of [[a - 1, b], [a + 1, b], [a, b - 1], [a, b + 1]]) {
-        if (!isIn(a2, b2) || reached[b2 * NX + a2]) continue;
+        if (!isIn(a2, b2) || reached[b2 * NX + a2] || blocked[b2 * NX + a2]) continue;
         if (between(a, b, a2, b2) >= o.wallEvidence) continue; // un mur sépare
         reached[b2 * NX + a2] = 1;
         queue.push([a2, b2]);
@@ -320,21 +438,37 @@ export function reconstructRoom(grid, segments, options = {}) {
     }
   }
 
-  // niches : petit rectangle vu libre mais coupé du trajet par un obstacle, ou jamais vu, bordé par la salle sur
-  // deux côtés au moins (un placard, un coin derrière une armoire ou des personnes). L'obstacle n'est
-  // pas un mur de la salle : la niche lui est rattachée (occlusions, Mura et al. 2014). Décidé d'un
-  // coup sur l'étiquetage courant, sans propagation : une grande zone derrière un mur reste dehors.
+  // niches : petite zone (un ou plusieurs rectangles voisins, sans mur entre eux) vue libre mais coupée
+  // du trajet par un obstacle, ou jamais vue, au bord de la salle et bordée par la salle sur deux côtés
+  // au moins (coin derrière un bureau, une armoire ou des personnes). L'obstacle n'est pas un mur de la
+  // salle : la niche lui est rattachée (occlusions, Mura et al. 2014). Décidé d'un coup sur
+  // l'étiquetage courant : une grande zone derrière un mur reste dehors.
+  const candidate = (a, b) =>
+    a >= 0 && b >= 0 && a < NX && b < NY && !blocked[b * NX + a] && lab[b * NX + a] === 'extérieur' && inFrame(a, b) &&
+    (cut[b * NX + a] || freeFrac[b * NX + a] < o.insideFree);
+  const grouped = new Uint8Array(NX * NY);
   const niches = [];
   for (let b = 0; b < NY; b++) {
     for (let a = 0; a < NX; a++) {
-      // coupé du trajet par un obstacle, ou jamais vu (caché par des personnes, une armoire)
-      if (!cut[b * NX + a] && !(lab[b * NX + a] === 'extérieur' && freeFrac[b * NX + a] < o.insideFree && inFrame(a, b))) continue;
-      const area = (xs[a + 1] - xs[a]) * (ys[b + 1] - ys[b]);
-      const near = [[a - 1, b], [a + 1, b], [a, b - 1], [a, b + 1]];
-      const inside = near.filter(([p, q]) => isIn(p, q)).length;
-      // au bord de la salle (un voisin hors du cadre) : un obstacle isolé au milieu reste un trou
-      const atEdge = near.some(([p, q]) => p < 0 || q < 0 || p >= NX || q >= NY || !inFrame(p, q));
-      if (area <= o.nicheMaxArea && inside >= 2 && atEdge) niches.push(b * NX + a);
+      if (grouped[b * NX + a] || !candidate(a, b)) continue;
+      const group = [[a, b]];
+      grouped[b * NX + a] = 1;
+      let area = 0;
+      let inside = 0;
+      let atEdge = false;
+      for (let g = 0; g < group.length; g++) {
+        const [p, q] = group[g];
+        area += (xs[p + 1] - xs[p]) * (ys[q + 1] - ys[q]);
+        for (const [p2, q2] of [[p - 1, q], [p + 1, q], [p, q - 1], [p, q + 1]]) {
+          if (p2 < 0 || q2 < 0 || p2 >= NX || q2 >= NY || !inFrame(p2, q2)) atEdge = true;
+          else if (isIn(p2, q2)) inside++;
+          else if (!grouped[q2 * NX + p2] && candidate(p2, q2) && between(p, q, p2, q2) < o.wallEvidence) {
+            grouped[q2 * NX + p2] = 1;
+            group.push([p2, q2]);
+          }
+        }
+      }
+      if (area <= o.nicheMaxArea && inside >= 2 && atEdge) niches.push(...group.map(([p, q]) => q * NX + p));
     }
   }
   for (const k of niches) lab[k] = 'complété';
@@ -344,7 +478,7 @@ export function reconstructRoom(grid, segments, options = {}) {
     let changed = false;
     for (let b = 0; b < NY; b++) {
       for (let a = 0; a < NX; a++) {
-        if (lab[b * NX + a] !== 'extérieur' || !inFrame(a, b)) continue;
+        if (lab[b * NX + a] !== 'extérieur' || !inFrame(a, b) || blocked[b * NX + a]) continue;
         const area = (xs[a + 1] - xs[a]) * (ys[b + 1] - ys[b]);
         if (area > o.completeMaxArea) continue;
         const sides = [
@@ -428,7 +562,12 @@ export function reconstructRoom(grid, segments, options = {}) {
     if (nearWall || !rectOf(cu, cv)) continue;
     // meuble = boîte englobante, s'il n'est pas collé au contour
     const margin = 0.15;
-    const touches = merged.some((w) => (w.u1 === w.u2 ? Math.abs(w.u1 - box.u1) < margin || Math.abs(w.u1 - box.u2) < margin : Math.abs(w.v1 - box.v1) < margin || Math.abs(w.v1 - box.v2) < margin));
+    // collé à un morceau du contour : sur la même droite ET en face (les intervalles se recouvrent)
+    const overlaps = (a0, a1, b0, b1) => Math.min(a1, b1) > Math.max(a0, b0) - margin;
+    const touches = merged.some((w) =>
+      w.u1 === w.u2
+        ? (Math.abs(w.u1 - box.u1) < margin || Math.abs(w.u1 - box.u2) < margin) && overlaps(Math.min(w.v1, w.v2), Math.max(w.v1, w.v2), box.v1, box.v2)
+        : (Math.abs(w.v1 - box.v1) < margin || Math.abs(w.v1 - box.v2) < margin) && overlaps(Math.min(w.u1, w.u2), Math.max(w.u1, w.u2), box.u1, box.u2));
     if (touches) continue;
     const corners = [toWorld(box.u1, box.v1), toWorld(box.u2, box.v1), toWorld(box.u2, box.v2), toWorld(box.u1, box.v2)];
     for (let k = 0; k < 4; k++) furniture.push({ x1: corners[k].x, y1: corners[k].y, x2: corners[(k + 1) % 4].x, y2: corners[(k + 1) % 4].y });

@@ -50,6 +50,17 @@ symétrique), un SLAM parti de zéro est ambigu. Il faut un **trajet continu au 
 tous les 20 à 30 cm : c'est le mode « SLAM en direct » de l'application, pas encore essayé sur
 le vrai robot.
 
+## Premier essai sur le vrai robot (4 novembre)
+
+- Notre robot n'a pas la carte moteurs I2C du module : moteurs commandés directement par l'ESP32
+  (AVG 18/19, AVD 5/17, ARG 15/2, ARD 16/4). Programme `firmware/ESP32_RobotWifi` (routes du module +
+  `/speed`). Connexion Wi-Fi, scans et mouvements : OK.
+- Pilotage par pas de 30 cm : SLAM perdu dès les premiers pas (pas trop grands, vitesse réelle
+  inconnue, robot entouré de chaises : scans pauvres, beaucoup de points à moins de 50 cm).
+- Remplacé par le **pilotage continu** (touche maintenue, SLAM à 5-6 scans/s), validé avec le faux
+  robot (pose au centimètre). **À réessayer sur le robot** : retéléverser `ESP32_RobotWifi`, espace
+  dégagé, vitesse 100-120, rotations douces ; enregistrer les scans dans `data/slam_wifi/`.
+
 ## À faire pour le rendu (par priorité)
 
 1. **Carte de la salle par SLAM avec le vrai robot** (prochaine séance avec le robot ; c'est ce

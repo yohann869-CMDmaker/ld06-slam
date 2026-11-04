@@ -32,6 +32,24 @@ chargent pas depuis `file://`).
 4. **Carte vectorielle** : mêmes actions ; export/import TXT (`x1,y1,x2,y2`), carte de
    référence en pointillés (par ex. `data/sim/scene_A.txt` ou une scène MapTool).
 
+## Piloter le robot par le câble USB (`firmware/ESP32_RobotUSB`)
+
+Le plus simple et le plus fiable : le robot reste branché au PC.
+
+1. Téléverser `firmware/ESP32_RobotUSB/ESP32_RobotUSB.ino` (librairie LD06 seulement), fermer le
+   moniteur série.
+2. `python scripts/live.py` (relais USB, sert aussi l'application), ouvrir http://localhost:8080/.
+3. Section « Robot » : liaison **USB**, « Démarrer le SLAM », vitesse vers 100-120, puis maintenir
+   les touches : **I** avancer, **K** reculer, **J** glisser à gauche, **L** glisser à droite,
+   **U** tourner à gauche, **O** tourner à droite ; **Échap** : arrêt.
+
+Le programme lit le lidar et commande les moteurs ; liaison à 921600 bauds (un scan passe en 0,1 s,
+4 à 5 scans par seconde). Le relais transmet les ordres de l'application (`/live/cmd`) : F, B, G,
+D, Q, E (mouvement de 400 ms, renvoyé toutes les 150 ms tant que la touche est maintenue), X (arrêt),
+V120 (vitesse). Les mêmes lettres marchent depuis le moniteur série (921600 bauds) pour un essai
+rapide. `live.py` et `capture.py` essaient 921600 puis 115200 bauds : l'ancien programme de capture
+marche toujours.
+
 ## Programme du robot en Wi-Fi (`firmware/ESP32_RobotWifi`)
 
 Sur notre robot, les moteurs ne passent pas par la carte I2C Keyestudio du module : ils sont

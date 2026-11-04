@@ -186,7 +186,13 @@
     </section>
 
     <section>
-      <h2>Robot en Wi-Fi : pilotage et exploration (bonus)</h2>
+      <h2>Robot : pilotage et exploration (bonus)</h2>
+      <label class="inline">Liaison
+        <select id="robotLink">
+          <option value="usb" selected>USB (câble, python scripts/live.py)</option>
+          <option value="wifi">Wi-Fi</option>
+        </select>
+      </label>
       <div class="row">
         <label class="inline">Scène
           <select id="exploScene">
@@ -207,7 +213,7 @@
       </div>
       <h3>Pilotage continu (maintenir)</h3>
       <div class="row">
-        <button id="btnTeleop" class="primary-btn" title="Scans en continu et SLAM, robot à l'arrêt ou en mouvement">Démarrer le SLAM Wi-Fi</button>
+        <button id="btnTeleop" class="primary-btn" title="Scans en continu et SLAM, robot à l'arrêt ou en mouvement">Démarrer le SLAM</button>
         <label class="check" title="Vitesse estimée × durée d'appui comme prédiction du SLAM"><input type="checkbox" id="teleopOdom" checked> Odométrie des commandes</label>
       </div>
       <label class="slider">Vitesse des moteurs : <span id="driveSpeedVal">140</span> / 255
@@ -221,7 +227,9 @@
         <button id="drive_glisseD" title="Maintenir : glisser à droite (L)">→ Glisser</button>
       </div>
       <label class="check"><input type="checkbox" id="driveKeys" checked> Clavier : maintenir I K J L U O (comme RobotControl)</label>
-      <p class="hint">Le robot roule tant que la touche ou le bouton est maintenu, et s'arrête dès qu'on le lâche
+      <p class="hint">USB : programme <code>firmware/ESP32_RobotUSB</code>, lancer <code>python scripts/live.py</code> et
+        ouvrir l'appli à son adresse. Wi-Fi : programme <code>firmware/ESP32_RobotWifi</code>, <code>node serve.mjs</code>.
+        Le robot roule tant que la touche ou le bouton est maintenu, et s'arrête dès qu'on le lâche
         (et seul après 0,4 s sans ordre). Le SLAM tourne en continu : rouler lentement, tourner doucement. Arrêt
         automatique si un obstacle est trop proche ou si le SLAM se perd. <strong>Échap</strong> : arrêt.</p>
       <h3>Exploration autonome</h3>

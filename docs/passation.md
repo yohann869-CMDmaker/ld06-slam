@@ -58,7 +58,9 @@ le vrai robot.
 - Pilotage par pas de 30 cm : SLAM perdu dès les premiers pas (pas trop grands, vitesse réelle
   inconnue, robot entouré de chaises : scans pauvres, beaucoup de points à moins de 50 cm).
 - Remplacé par le **pilotage continu** (touche maintenue, SLAM à 5-6 scans/s), validé avec le faux
-  robot (pose au centimètre). **À réessayer sur le robot** : retéléverser `ESP32_RobotWifi`, espace
+  robot (pose au centimètre). Le Wi-Fi a été abandonné pour l'essai suivant : **pilotage par câble USB**
+  (`firmware/ESP32_RobotUSB` + `python scripts/live.py`, liaison « USB » dans l'appli, touches I K J L U O),
+  relais testé avec un faux ESP32 en Python, pas encore sur le robot. **À réessayer sur le robot** : retéléverser `ESP32_RobotWifi`, espace
   dégagé, vitesse 100-120, rotations douces ; enregistrer les scans dans `data/slam_wifi/`.
 
 ## À faire pour le rendu (par priorité)

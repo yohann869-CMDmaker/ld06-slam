@@ -67,10 +67,12 @@ def detect_mode(ser, wait=4.0):
     return None
 
 
-def capture_block(ser, timeout=6.0):
-    """Programme de capture : envoie 's' et renvoie le bloc complet (lignes), ou lève une erreur."""
-    ser.reset_input_buffer()
-    ser.write(b"s")
+def capture_block(ser, timeout=6.0, send=True):
+    """Programme de capture : envoie 's' (sauf send=False : déjà envoyé) et renvoie le bloc complet
+    (lignes), ou lève une erreur."""
+    if send:
+        ser.reset_input_buffer()
+        ser.write(b"s")
     lines = []
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -136,15 +138,20 @@ def main():
     port = args.port or find_port()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    try:
-        ser = serial.Serial(port, 115200, timeout=0.2)
-    except serial.SerialException as err:
-        sys.exit(f"Impossible d'ouvrir {port} : {err}\n-> Fermer le moniteur série de l'IDE Arduino (un seul programme à la fois).")
-
-    print(f"Connecté à {port}, attente de l'ESP32…")
-    mode = detect_mode(ser)
+    # 921600 bauds : ESP32_RobotUSB ; 115200 : ESP32_LD06_Capture et le programme de test
+    mode = None
+    for baud in (921600, 115200):
+        try:
+            ser = serial.Serial(port, baud, timeout=0.2)
+        except serial.SerialException as err:
+            sys.exit(f"Impossible d'ouvrir {port} : {err}\n-> Fermer le moniteur série de l'IDE Arduino (un seul programme à la fois).")
+        print(f"Connecté à {port} ({baud} bauds), attente de l'ESP32…")
+        mode = detect_mode(ser, wait=3.0)
+        if mode is not None:
+            break
+        ser.close()
     if mode is None:
-        sys.exit("L'ESP32 ne répond pas. Téléverser ESP32_LD06_Capture ou ESP32_LD06_Test, puis relancer.")
+        sys.exit("L'ESP32 ne répond pas. Téléverser ESP32_RobotUSB, ESP32_LD06_Capture ou ESP32_LD06_Test, puis relancer.")
     print("Programme détecté :", "capture à la demande (ESP32_LD06_Capture)" if mode == "capture" else "programme de test (Teleplot)")
     if mode == "capture":
         ser.reset_input_buffer()

@@ -7,8 +7,11 @@ Usage (moniteur série de l'IDE Arduino fermé) :
 Puis ouvrir http://localhost:8080/ : le scan du lidar s'affiche et se met à jour en continu.
 Ce programme sert aussi l'application (inutile de lancer node serve.mjs en plus).
 
-- Avec firmware/ESP32_LD06_Capture, les scans sont demandés en boucle ('s'), environ un
-  par seconde, complets.
+- Avec firmware/ESP32_RobotUSB (921600 bauds), les scans sont demandés en boucle ('s'),
+  4 à 5 par seconde, et l'application peut piloter les moteurs : /live/cmd?c=F (F avancer,
+  B reculer, G / D glisser, Q / E tourner, X arrêt, V120 vitesse), transmis tels quels.
+- Avec firmware/ESP32_LD06_Capture (115200 bauds), les scans sont demandés en boucle ('s'),
+  environ un par seconde, complets.
 - Avec le programme de test du module (Teleplot), chaque tour reçu est relayé tel quel
   (environ deux par seconde, avec les trous dus aux trames perdues par ce programme).
 Si le câble est débranché ou le port occupé, le relais réessaie tout seul toutes les 2 s.
@@ -23,13 +26,16 @@ import threading
 import time
 import webbrowser
 from functools import partial
+from urllib.parse import parse_qs, urlparse
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from capture import ROOT, capture_block, detect_mode, read_line, serial, usb_ports  # noqa: E402
 
-MODES ={"capture": "programme de capture", "teleplot": "programme de test (Teleplot)"}
+MODES = {"capture": "programme de capture", "teleplot": "programme de test (Teleplot)"}
+BAUDS = (921600, 115200)  # ESP32_RobotUSB, puis ESP32_LD06_Capture et le programme de test
+COMMAND_CHARS = set("FBGDQEXV0123456789")
 
 
 class Hub:
@@ -41,6 +47,17 @@ class Hub:
         self.scan = None
         self.status_seq = 0
         self.status = {"connected": False, "message": "Démarrage…"}
+        self.ser = None  # port série ouvert, pour les ordres moteurs de l'application
+        self.write_lock = threading.Lock()
+
+    def send_command(self, cmd):
+        """Ordre moteur de l'application vers l'ESP32 ; False si le robot n'est pas branché."""
+        ser = self.ser
+        if ser is None:
+            return False
+        with self.write_lock:
+            ser.write(cmd.encode("ascii"))
+        return True
 
     def publish_scan(self, text, mode):
         with self.cond:
@@ -66,26 +83,36 @@ def serial_worker(hub, port_arg):
             continue
         port = ports[0]
         try:
-            with serial.Serial(port, 115200, timeout=0.2) as ser:
-                hub.publish_status(f"{port} ouvert, attente de l'ESP32…")
-                mode = detect_mode(ser)
-                if mode is None:
-                    hub.publish_status(f"{port} : l'ESP32 ne répond pas (programme téléversé ?)")
-                    time.sleep(2)
-                    continue
-                hub.publish_status(f"Robot connecté sur {port} : {MODES[mode]}", connected=True, port=port, mode=mode)
-                if mode == "capture":
-                    while True:
-                        try:
-                            hub.publish_scan("\n".join(capture_block(ser)), mode)
-                        except RuntimeError as err:
-                            hub.publish_status(f"{port} : {err}", connected=True, port=port, mode=mode)
-                            time.sleep(0.5)
-                else:
-                    while True:
-                        line = read_line(ser)
-                        if line.startswith(">") and line.endswith("|xy"):
-                            hub.publish_scan(line, mode)  # le dernier tour, tel quel
+            mode = None
+            for baud in BAUDS:
+                with serial.Serial(port, baud, timeout=0.2) as ser:
+                    hub.publish_status(f"{port} ouvert à {baud} bauds, attente de l'ESP32…")
+                    mode = detect_mode(ser, wait=3.0)
+                    if mode is None:
+                        continue
+                    hub.publish_status(f"Robot connecté sur {port} ({baud} bauds) : {MODES[mode]}", connected=True, port=port, mode=mode, baud=baud)
+                    hub.ser = ser
+                    try:
+                        if mode == "capture":
+                            while True:
+                                try:
+                                    with hub.write_lock:
+                                        ser.reset_input_buffer()
+                                        ser.write(b"s")
+                                    hub.publish_scan("\n".join(capture_block(ser, send=False)), mode)
+                                except RuntimeError as err:
+                                    hub.publish_status(f"{port} : {err}", connected=True, port=port, mode=mode, baud=baud)
+                                    time.sleep(0.5)
+                        else:
+                            while True:
+                                line = read_line(ser)
+                                if line.startswith(">") and line.endswith("|xy"):
+                                    hub.publish_scan(line, mode)  # le dernier tour, tel quel
+                    finally:
+                        hub.ser = None
+            if mode is None:
+                hub.publish_status(f"{port} : l'ESP32 ne répond pas (programme téléversé ?)")
+                time.sleep(2)
         except serial.SerialException as err:
             busy = "denied" in str(err).lower() or "refusé" in str(err).lower() or "PermissionError" in str(err)
             hint = "port occupé : fermer le moniteur série de l'IDE Arduino" if busy else "liaison perdue"
@@ -133,6 +160,17 @@ class Handler(SimpleHTTPRequestHandler):
             self.wfile.write(body)
         elif path == "/live":
             self.stream()
+        elif path == "/live/cmd":
+            # ordre moteur de l'application : F, B, G, D, Q, E, X ou V<vitesse>
+            cmd = parse_qs(urlparse(self.path).query).get("c", [""])[0]
+            ok = bool(cmd) and set(cmd) <= COMMAND_CHARS and len(cmd) <= 5
+            sent = ok and self.hub.send_command(cmd + ("\n" if cmd.startswith("V") else ""))
+            body = b"OK" if sent else (b"robot non branche" if ok else b"commande invalide")
+            self.send_response(200 if sent else (503 if ok else 400))
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         else:
             super().do_GET()
 

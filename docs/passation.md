@@ -22,7 +22,7 @@ Fichier à lire en premier pour reprendre le projet (personne ou IA). Mis à jou
 | 1 | Carte vectorielle | Fait (fusion, gestion des absences, carte propre, objets fixes étiquetés) | `src/core/vectormap.js`, `cleanup.js` |
 | 2 | Localisation sur grid map, carte vectorielle, scan de référence + évaluation chiffrée | Fait : 6 méthodes (brute force, gradient, multi-résolution, probabiliste, ICP, calcul direct), banc d'essai simulé et réel, sensibilité à l'initialisation, localisation globale | `src/core/localization.js`, `globalloc.js`, `docs/jour2*.md` |
 | 3 | SLAM (localisation + cartographie simultanées) | Fait : suivi sur carte locale, relocalisation, scans clés, graphe de poses Gauss-Newton avec fermeture de boucle ; validé en simulation (salle : 0,6 cm ; couloir 54 m : 27 cm avec boucle) | `src/core/slam.js`, `posegraph.js`, `docs/jour3*.md` |
-| 3 | Carte complète de la salle | Carte de référence faite à partir des 18 scans réels recalés (`data/reference/`) ; **pas encore** produite par le SLAM lui-même | voir « À faire » |
+| 3 | Carte complète de la salle | **Fait avec le vrai robot le 4 nov.** (USB, pilotage clavier, SLAM en direct) : 159 scans clés, 57 m, murs à 4,3 cm de la carte de référence ; filtrage 1 (chaises) puis filtrage 2 + reconstruction du plan (murs reconstruits à 4 cm de la référence) | `data/slam_usb_20261104/`, `scripts/analyse-slam.mjs`, `src/core/reconstruct.js`, **`docs/rapport_slam_reel.md`** (partie rapport), `docs/slam_usb_20261104.md` |
 | 3 | Bonus : déplacer le robot automatiquement | Fait en simulation : exploration par frontières sur la carte du SLAM (6 départs sur 6 réussis, couverture 99,6-100 %, 0 collision, 1-2 cm d'erreur) ; pilotage Wi-Fi du vrai robot (`firmware/ESP32_RobotWifi` : notre robot commande ses moteurs directement par l'ESP32, pas par la carte I2C du module) avec étalonnage automatique des vitesses, vérifié avec un faux robot (`scripts/mock-robot.mjs`) ; **pas encore essayé sur le vrai robot** | `src/core/explore.js`, `docs/jour3.md` (§ Bonus), `docs/jour3_explore.md` |
 
 Comptes rendus : `docs/jour1.md`, `docs/jour2.md`, `docs/jour3.md` ; algorithmes expliqués :
@@ -63,9 +63,21 @@ le vrai robot.
   relais testé avec un faux ESP32 en Python, pas encore sur le robot. **À réessayer sur le robot** : retéléverser `ESP32_RobotWifi`, espace
   dégagé, vitesse 100-120, rotations douces ; enregistrer les scans dans `data/slam_wifi/`.
 
+## SLAM réel et reconstruction (4 novembre, soir)
+
+- Session USB réussie (17 h 50-18 h 16), scans clés exportés dans `data/slam_usb_20261104/`.
+- `node scripts/analyse-slam.mjs data/slam_usb_20261104 --nom slam_usb_20261104` : recalage sur la
+  référence, filtrage 1, reconstruction, figures `docs/img/slam_usb_20261104_*.png` et
+  `docs/slam_usb_20261104.md`.
+- Texte pour le rapport : `docs/rapport_slam_reel.md` (premier résultat comparé à la référence,
+  démarche et trajet, filtres, reconstruction inspirée d'Okorn 2010, Mura 2014, Ochmann 2016/2019).
+- Reste ouvert : niche de 1,9 × 1,5 m à gauche non rattachée (à confirmer avec Yohan : est-ce le
+  coin inaccessible ?) ; échelle absolue à vérifier au mètre ruban.
+
 ## À faire pour le rendu (par priorité)
 
-1. **Carte de la salle par SLAM avec le vrai robot** (prochaine séance avec le robot ; c'est ce
+1. ~~**Carte de la salle par SLAM avec le vrai robot**~~ (fait le 4 novembre, voir ci-dessus ;
+   reste à intégrer `docs/rapport_slam_reel.md` dans `docs/jour3.md` ou le rapport final) (prochaine séance avec le robot ; c'est ce
    qui manque pour finir le jour 3). Deux façons, la seconde est le bonus :
    - USB : `python scripts/live.py`, case « SLAM en direct », pousser le robot lentement au sol
      sur une boucle dans la salle ;

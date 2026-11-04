@@ -23,7 +23,7 @@ Fichier à lire en premier pour reprendre le projet (personne ou IA). Mis à jou
 | 2 | Localisation sur grid map, carte vectorielle, scan de référence + évaluation chiffrée | Fait : 6 méthodes (brute force, gradient, multi-résolution, probabiliste, ICP, calcul direct), banc d'essai simulé et réel, sensibilité à l'initialisation, localisation globale | `src/core/localization.js`, `globalloc.js`, `docs/jour2*.md` |
 | 3 | SLAM (localisation + cartographie simultanées) | Fait : suivi sur carte locale, relocalisation, scans clés, graphe de poses Gauss-Newton avec fermeture de boucle ; validé en simulation (salle : 0,6 cm ; couloir 54 m : 27 cm avec boucle) | `src/core/slam.js`, `posegraph.js`, `docs/jour3*.md` |
 | 3 | Carte complète de la salle | Carte de référence faite à partir des 18 scans réels recalés (`data/reference/`) ; **pas encore** produite par le SLAM lui-même | voir « À faire » |
-| 3 | Bonus : déplacer le robot automatiquement | Fait en simulation : exploration par frontières sur la carte du SLAM (6 départs sur 6 réussis, couverture 99,6-100 %, 0 collision, 1-2 cm d'erreur) ; pilotage Wi-Fi du vrai robot (ESP32RobotControl) avec étalonnage automatique des vitesses, vérifié avec un faux robot (`scripts/mock-robot.mjs`) ; **pas encore essayé sur le vrai robot** | `src/core/explore.js`, `docs/jour3.md` (§ Bonus), `docs/jour3_explore.md` |
+| 3 | Bonus : déplacer le robot automatiquement | Fait en simulation : exploration par frontières sur la carte du SLAM (6 départs sur 6 réussis, couverture 99,6-100 %, 0 collision, 1-2 cm d'erreur) ; pilotage Wi-Fi du vrai robot (`firmware/ESP32_RobotWifi` : notre robot commande ses moteurs directement par l'ESP32, pas par la carte I2C du module) avec étalonnage automatique des vitesses, vérifié avec un faux robot (`scripts/mock-robot.mjs`) ; **pas encore essayé sur le vrai robot** | `src/core/explore.js`, `docs/jour3.md` (§ Bonus), `docs/jour3_explore.md` |
 
 Comptes rendus : `docs/jour1.md`, `docs/jour2.md`, `docs/jour3.md` ; algorithmes expliqués :
 `docs/algorithmes.md` ; erreurs rencontrées et corrections : `docs/journal.md` ; **état de l'art**
@@ -56,7 +56,7 @@ le vrai robot.
    qui manque pour finir le jour 3). Deux façons, la seconde est le bonus :
    - USB : `python scripts/live.py`, case « SLAM en direct », pousser le robot lentement au sol
      sur une boucle dans la salle ;
-   - Wi-Fi : téléverser `ESP32RobotControl.ino` (Ressources, Tools/RobotControl), connecter le PC
+   - Wi-Fi : téléverser `firmware/ESP32_RobotWifi` (câblage des moteurs en tête du fichier), connecter le PC
      au Wi-Fi `RobotESP32`, `node serve.mjs`, bouton « Explorer avec le robot (Wi-Fi) », rester à
      côté (Échap = arrêt). Mesurer d'abord à peu près la vitesse du robot (cm parcourus en 1 s)
      pour remplir les champs ; ils se corrigent ensuite tout seuls.

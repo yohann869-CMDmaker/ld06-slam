@@ -32,6 +32,28 @@ chargent pas depuis `file://`).
 4. **Carte vectorielle** : mêmes actions ; export/import TXT (`x1,y1,x2,y2`), carte de
    référence en pointillés (par ex. `data/sim/scene_A.txt` ou une scène MapTool).
 
+## Programme du robot en Wi-Fi (`firmware/ESP32_RobotWifi`)
+
+Sur notre robot, les moteurs ne passent pas par la carte I2C Keyestudio du module : ils sont
+commandés **directement par l'ESP32**, deux broches par roue (une par sens, en PWM). Le programme
+du module (`ESP32RobotControl.ino`) utilise GPIO19 et GPIO21 comme bus I2C : sur ce robot ce sont
+des broches moteur, et les roues tournaient toutes seules. `firmware/ESP32_RobotWifi` reprend les
+mêmes routes HTTP et le même format de scan (l'application et RobotControl marchent sans
+changement), avec le câblage en tête du fichier :
+
+| Roue | Avance | Recule |
+| --- | --- | --- |
+| Avant gauche (M2) | D18 | D19 |
+| Avant droite (M1) | D5 | D17 |
+| Arrière gauche (M3) | D15 | D2 |
+| Arrière droite (M4) | D16 | D4 |
+
+Lidar : TX sur GPIO33, PWM sur GPIO32. Librairies : LD06 (ZIP du module), Async TCP et
+ESP Async WebServer (auteur ESP32Async). Carte « ESP32 Dev Module ». Une roue qui tourne à
+l'envers : `inverse = true` sur sa ligne ; un déplacement latéral dans le mauvais sens : échanger le
+contenu de `left()` et `right()` (orientation des galets). Le programme de capture USB met aussi ces
+8 broches à 0 au démarrage.
+
 ## Acquisition des scans avec le programme de test fourni (Teleplot)
 
 Le programme `ESP32_LD06_Test.ino` du module envoie chaque tour sur le port série sous la
@@ -122,7 +144,7 @@ Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
   « trop vite » au-delà de 35 cm ou 15° par scan.
 - **Exploration autonome** (bonus) : **Exploration simulée** (salle de classe ou trois pièces) montre le
   robot qui part sans carte et va seul vers les frontières entre le connu et l'inconnu ; **Explorer
-  avec le robot (Wi-Fi)** fait de même avec le vrai robot (programme `ESP32RobotControl.ino`, Wi-Fi
+  avec le robot (Wi-Fi)** fait de même avec le vrai robot (programme `firmware/ESP32_RobotWifi`, Wi-Fi
   `RobotESP32`, IP `192.168.4.1`). **Échap** ou **Arrêt** coupe les moteurs. Sans robot :
   `node scripts/mock-robot.mjs` puis IP `localhost:8090`.
 
@@ -147,7 +169,7 @@ Autres scripts :
 | `node scripts/benchmark-global.mjs` | Banc d'essai de la localisation globale, sans pose de départ (`docs/jour2_global.md`) |
 | `node scripts/benchmark-slam.mjs` | Banc d'essai du SLAM sur trajets simulés (`docs/jour3_slam.md`, figures `docs/img/j3_*.png`) |
 | `node scripts/benchmark-explore.mjs` | Banc d'essai de l'exploration autonome en simulation (`docs/jour3_explore.md`, figures `docs/img/j3_explo_*.png`) |
-| `node scripts/mock-robot.mjs` | Faux robot Wi-Fi (routes de ESP32RobotControl) pour essayer l'exploration sans le robot |
+| `node scripts/mock-robot.mjs` | Faux robot Wi-Fi (routes de ESP32RobotControl / ESP32_RobotWifi) pour essayer l'exploration sans le robot |
 | `node scripts/gen-trajet.mjs` | Trajet simulé pour essayer le SLAM dans l'application (`data/sim_trajet/`) |
 | `node scripts/benchmark-reel.mjs` | Banc d'essai sur données réelles : scans de la carte (sans eux) et jeu de test `data/test` (`docs/jour2_reel.md`) |
 | `node scripts/build-reference.mjs` | Carte de référence de la salle à partir de `data/real/` (`data/reference/`) |

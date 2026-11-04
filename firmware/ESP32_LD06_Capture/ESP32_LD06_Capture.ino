@@ -30,10 +30,18 @@
 #define LIDAR_BAUD 230400
 #define USB_BAUD 115200
 
+// broches des moteurs de notre robot (commandés directement par l'ESP32, voir ESP32_RobotWifi) :
+// mises à 0 au démarrage, sinon les entrées du pont en H flottent et les roues peuvent tourner
+const uint8_t MOTEURS[] = {18, 19, 5, 17, 15, 2, 16, 4};
+
 LD06 ld06(Serial2, LD06_PWM_PIN);
 uint32_t scanCount = 0;  // tours complets reçus depuis le démarrage
 
 void setup() {
+  for (uint8_t p : MOTEURS) {
+    pinMode(p, OUTPUT);
+    digitalWrite(p, LOW);
+  }
   Serial.begin(USB_BAUD);
   Serial2.setRxBufferSize(4096);
   Serial2.begin(LIDAR_BAUD, SERIAL_8N1, RX_LIDAR, TX_LIDAR);

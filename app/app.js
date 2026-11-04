@@ -1231,10 +1231,11 @@ async function slamLiveStep() {
       afterDriveScan(r, slam);
     }
     // déplacement depuis le scan précédent, mesuré par le lidar : il doit rester dans la fenêtre de
-    // suivi (±50 cm, ±20°) ; au-delà de 35 cm ou 15° par scan, on prévient
+    // suivi (±50 cm, ±20° autour de la prédiction à vitesse constante) ; au-delà de 55 cm ou 25° par
+    // scan, on prévient
     const step = prev ? relative(prev, r.pose) : null;
     const stepCm = step ? 100 * Math.hypot(step.x, step.y) : 0;
-    const fast = step && (stepCm > 35 || Math.abs(step.theta) > 15);
+    const fast = step && (stepCm > 55 || Math.abs(step.theta) > 25);
     if (r.keyframe) {
       const entry = addScan(parseScanCSV(text, captureName()));
       entry.pose = { ...r.pose };

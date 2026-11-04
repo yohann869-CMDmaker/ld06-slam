@@ -30,7 +30,7 @@ export class LiveSlam {
     const plain = { name: scan.name, pose: scan.pose, points: scan.points, format: scan.format, comments: scan.comments, elevated: scan.elevated };
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ type: 'scan', id, scan: plain, odom, first });
+      this.worker.postMessage({ type: 'scan', id, scan: plain, odom, first, time: performance.now() });
     });
   }
 

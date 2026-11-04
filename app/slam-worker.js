@@ -14,7 +14,7 @@ self.onmessage = ({ data }) => {
   }
   if (data.type !== 'scan') return;
   try {
-    const r = slam.addScan(data.scan, data.odom, data.first);
+    const r = slam.addScan(data.scan, data.odom, data.first, data.time);
     const msg = {
       type: 'result',
       id: data.id,

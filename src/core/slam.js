@@ -3,11 +3,14 @@
 // Pour chaque nouveau scan :
 //   1. prédiction : pose du scan précédent, composée avec le mouvement commandé s'il est connu
 //      (le robot Mecanum n'a pas de codeurs : c'est la durée des commandes, très approximative) ;
+//      sinon (robot poussé à la main) modèle à vitesse constante : le robot continue comme il
+//      bougeait entre les deux scans précédents (il faut alors l'heure de chaque scan) ;
 //   2. suivi sur la CARTE LOCALE (les `localKeyframes` derniers scans clés) : multi-résolution dans
 //      une fenêtre autour de la prédiction, puis ICP. Une carte locale plutôt que toute la carte :
 //      au retour dans une zone déjà vue, le suivi ne « saute » pas vers l'ancienne carte (ce saut
 //      fausserait la chaîne des déplacements) ; c'est la fermeture de boucle qui s'en charge ;
-//      si le scan ne colle pas (moins de `minInliers` de ses points sur la carte), relocalisation
+//      si le scan ne colle pas (moins de `minInliers` de ses points sur la carte), recherche élargie
+//      (±60°, `wideWindow`) autour de la prédiction et de la pose précédente, puis relocalisation
 //      globale dans toute la carte (globalloc.js) ;
 //   3. cartographie : le scan est ajouté à la carte s'il apporte du nouveau (« scan clé » : au
 //      moins `keyDist` ou `keyAngle` depuis le dernier scan clé) et si sa pose est sûre ;
@@ -31,6 +34,8 @@ export const DEFAULT_SLAM = Object.freeze({
   minInliers: 0.5, // part des points du scan sur la carte pour accepter le suivi
   fastTracking: true, // suivi par Gauss-Newton d'abord, multi-résolution en secours
   fastInliers: 0.7, // part des points sur la carte pour se contenter du suivi rapide
+  motionModel: true, // sans odométrie : prédiction à vitesse constante (si l'heure des scans est donnée)
+  wideWindow: { xyRange: 0.6, thRange: 60 }, // recherche élargie avant de se déclarer perdu (null : aucune)
   relocalize: true, // relocalisation globale si le suivi échoue
   relocEvery: 1, // scans minimum entre deux tentatives de relocalisation (coûteuse : 0,5 à 1 s)
   priorXY: 1, // m : écart-type de l'a priori de position quand le mouvement est connu (odométrie)
@@ -117,6 +122,8 @@ export class Slam {
     this.last = null; // dernière pose estimée
     this.lastLoop = -Infinity;
     this.lastReloc = -Infinity;
+    this.velocity = null; // vitesse estimée (repère du robot, m/s et degrés/s) pour la prédiction
+    this.lastTime = null;
     this.localRef = null;
     this.globalRef = null;
   }
@@ -154,9 +161,10 @@ export class Slam {
   /**
    * Ajoute un scan. odom : déplacement commandé depuis le scan précédent, dans le repère du robot
    * ({ x, y, theta }, facultatif). first : pose du premier scan (défaut : celle du fichier, ou 0).
+   * time : heure du scan en ms (facultatif) ; sans odométrie, sert au modèle à vitesse constante.
    * Retourne { pose, mode ('départ' | 'suivi' | 'relocalisé' | 'perdu'), inliers, keyframe, loop, time }.
    */
-  addScan(scan, odom = null, first = null) {
+  addScan(scan, odom = null, first = null, time = null) {
     const t0 = performance.now();
     const index = this.trajectory.length;
     const points = scanToLocalXY(scan);
@@ -164,22 +172,55 @@ export class Slam {
       const pose = { ...(first ?? scan.pose ?? { x: 0, y: 0, theta: 0 }) };
       const k = this.addKeyframe(scan, points, pose, index);
       this.last = pose;
+      this.lastTime = time;
       const r = { index, pose, mode: 'départ', inliers: 1, keyframe: true, anchor: k, rel: { x: 0, y: 0, theta: 0 }, loop: null, time: performance.now() - t0 };
       this.trajectory.push(r);
       return r;
     }
     // 1. prédiction ; 2. suivi sur la carte locale
-    const predicted = odom ? composePoses(this.last, odom) : { ...this.last };
+    const dt = time != null && this.lastTime != null ? Math.min(1, Math.max(0, (time - this.lastTime) / 1000)) : null;
+    let predicted = { ...this.last };
+    if (odom) predicted = composePoses(this.last, odom);
+    else if (this.o.motionModel && this.velocity && dt) {
+      const v = this.velocity;
+      predicted = composePoses(this.last, { x: v.x * dt, y: v.y * dt, theta: v.theta * dt });
+    }
     const ref = this.localReference();
     // suivi rapide d'abord (Gauss-Newton sur la carte locale, ~1 ms, à la manière de Hector SLAM) ;
     // la recherche multi-résolution (~100 ms) seulement s'il ne colle pas assez
-    let m = this.o.fastTracking ? localize(ref, points, predicted, 'gaussnewton') : null;
+    // départs : la prédiction et, si elle en diffère (vitesse constante), la pose précédente ; on
+    // garde le recalage qui colle le mieux (une prédiction fausse au début d'un virage ne coûte rien)
+    const starts = [predicted];
+    if (!odom && (Math.hypot(predicted.x - this.last.x, predicted.y - this.last.y) > 0.02 || Math.abs(normalizeAngleDeg(predicted.theta - this.last.theta)) > 2)) starts.push({ ...this.last });
+    let m = null;
+    if (this.o.fastTracking) {
+      for (const st of starts) {
+        const g = localize(ref, points, st, 'gaussnewton');
+        if (!m || g.inliers > m.inliers) m = g;
+      }
+    }
     if (!m || m.inliers < this.o.fastInliers) {
-      const mr = localize(ref, points, predicted, 'multires', this.o.window);
-      if (!m || mr.inliers >= m.inliers) m = mr;
+      for (const st of starts) {
+        const mr = localize(ref, points, st, 'multires', this.o.window);
+        if (!m || mr.inliers >= m.inliers) m = mr;
+        if (m.inliers >= this.o.fastInliers) break;
+      }
     }
     const i = localize(ref, points, m.pose, 'icp');
     let best = i.inliers >= m.inliers ? i : m;
+    // recherche élargie (rotation rapide, prédiction fausse) avant de se déclarer perdu : autour de la
+    // prédiction et, si elle en diffère, autour de la pose précédente
+    if (best.inliers < this.o.minInliers && this.o.wideWindow) {
+      const starts = [predicted];
+      if (Math.hypot(predicted.x - this.last.x, predicted.y - this.last.y) > 0.05 || Math.abs(normalizeAngleDeg(predicted.theta - this.last.theta)) > 5) starts.push(this.last);
+      for (const start of starts) {
+        const w = localize(ref, points, start, 'multires', this.o.wideWindow);
+        const wi = localize(ref, points, w.pose, 'icp');
+        const cand = wi.inliers >= w.inliers ? wi : w;
+        if (cand.inliers > best.inliers) best = cand;
+        if (best.inliers >= this.o.minInliers) break;
+      }
+    }
     let mode = 'suivi';
     if (best.inliers < this.o.minInliers && this.o.relocalize && index - this.lastReloc >= this.o.relocEvery) {
       this.lastReloc = index;
@@ -207,6 +248,13 @@ export class Slam {
       if (this.o.loopClosure && anchor - this.lastLoop >= this.o.loopEvery) loop = this.closeLoop(anchor);
       pose = this.keyframes[anchor].pose;
     }
+    // vitesse pour la prédiction suivante (mouvement mesuré par le lidar) ; oubliée si perdu
+    if (dt && mode !== 'perdu') {
+      const d = relative(this.last, pose);
+      const clamp = (v, m) => Math.max(-m, Math.min(m, v));
+      this.velocity = { x: clamp(d.x / dt, 1), y: clamp(d.y / dt, 1), theta: clamp(d.theta / dt, 180) };
+    } else if (mode === 'perdu') this.velocity = null;
+    this.lastTime = time;
     this.last = pose;
     const r = { index, pose, mode, inliers: best.inliers, keyframe, anchor, rel: relative(this.keyframes[anchor].pose, pose), loop, time: performance.now() - t0 };
     this.trajectory.push(r);

@@ -8,7 +8,10 @@
 // d'où les roues qui tournaient toutes seules.
 //
 // Routes : /forward /backward /left /right /rotateleft /rotateright ?time=ms (rotations : durée
-// divisée par 2, comme le programme du module), /stop, /scan (binaire), /pose?x=&y=&z=, /ping.
+// divisée par 2, comme le programme du module), /stop, /scan (binaire), /pose?x=&y=&z=, /ping,
+// et en plus /speed?v=0..255 (vitesse des moteurs). Pilotage continu : l'application renvoie la
+// commande toutes les 150 ms tant que la touche est maintenue ; chaque commande repousse l'arrêt
+// automatique, qui coupe les moteurs si plus rien n'arrive (Wi-Fi perdu, page fermée).
 
 #include <WiFi.h>
 #include <AsyncTCP.h>
@@ -35,8 +38,8 @@ Wheel WHEELS[4] = {
 };
 enum { AVG = 0, AVD = 1, ARG = 2, ARD = 3 };  // indices dans WHEELS
 
-// vitesse des moteurs : rapport cyclique PWM de 0 à 255 (l'application étalonne sa vitesse seule)
-const uint8_t VITESSE = 180;
+// vitesse des moteurs au démarrage : rapport cyclique PWM de 0 à 255 (réglable ensuite par /speed)
+uint8_t vitesse = 180;
 const uint32_t PWM_FREQ = 1000;  // Hz
 
 // lidar LD06 : TX du lidar sur LIDAR_RX, entrée PWM du lidar sur LIDAR_PWM
@@ -80,8 +83,8 @@ const int MAX_MOVE_MS = 2000;
 // sens : +1 avance, -1 recule, 0 arrêt ; une seule des deux broches en PWM, l'autre à 0
 void wheel(const Wheel& w, int sens) {
   if (w.inverse) sens = -sens;
-  analogWrite(w.avance, sens > 0 ? VITESSE : 0);
-  analogWrite(w.recule, sens < 0 ? VITESSE : 0);
+  analogWrite(w.avance, sens > 0 ? vitesse : 0);
+  analogWrite(w.recule, sens < 0 ? vitesse : 0);
 }
 
 void wheels(int avg, int avd, int arg, int ard) {
@@ -244,6 +247,10 @@ void setup() {
     ok(r);
   });
   server.on("/ping", HTTP_GET, [](AsyncWebServerRequest* r) { ok(r); });
+  server.on("/speed", HTTP_GET, [](AsyncWebServerRequest* r) {
+    vitesse = (uint8_t)constrain(getArg(r, "v", vitesse), 0, 255);
+    ok(r);
+  });
   server.begin();
 }
 

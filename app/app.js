@@ -1,6 +1,6 @@
 // Application web : affichage de plusieurs scans, poses modifiables,
 // construction et mise à jour d'une grid map et d'une carte vectorielle.
-import { DEG, normalizeAngleDeg, poseError, transformPoints } from '../src/core/pose.js';
+import { composePoses, DEG, normalizeAngleDeg, poseError, transformPoints } from '../src/core/pose.js';
 import { looksElevated, parseRobotBinary, parseScanCSV, scanToLocalXY, serializeScanCSV, setElevated, validPoints } from '../src/core/scan.js';
 import { commandMotion, commandRequest, DEFAULT_EXPLORE, Explorer, freeAhead, simulateExploration, updateSpeeds } from '../src/core/explore.js';
 import { GridMap, gridFromScan, occupancyRGB, UNKNOWN_RGB } from '../src/core/gridmap.js';
@@ -1240,6 +1240,7 @@ function resetSlam() {
   Object.assign(state, { slam: null, slamTrack: null, slamLivePose: null });
   Object.assign(explo, { plan: null, truth: null, scene: null });
   Object.assign(wifi, { odom: null, lastCmd: null, prevPose: null, lastScan: null });
+  Object.assign(teleop, { odom: { ...ZERO }, calib: null, lost: false });
   for (const e of state.scans) delete e.slamIndex;
   $('slamStat').textContent = 'SLAM réinitialisé : le prochain scan en direct fixe le repère (à la pose du scan sélectionné).';
   draw();
@@ -1414,43 +1415,9 @@ async function wifiMove(command) {
 }
 
 const fmtPose = (p) => `(${p.x.toFixed(2)} ; ${p.y.toFixed(2)} ; ${p.theta.toFixed(0)}°)`;
-const fmtMove = (c) => (c.kind === 'rotate' ? `${c.angle.toFixed(0)}°` : `${(100 * c.distance).toFixed(0)} cm`);
-const fmtMeasured = (c, m) => (c.kind === 'rotate' ? `${normalizeAngleDeg(m.theta).toFixed(0)}°` : `${(100 * Math.hypot(m.x, m.y)).toFixed(0)} cm`);
-
 /**
- * Pilotage manuel (Wi-Fi) : chaque bouton envoie un déplacement connu (30 cm, 30°), puis scan et
- * SLAM avec ce déplacement comme odométrie. Le robot « connaît » son déplacement sans ruban : la
- * commande donne la prédiction, le lidar la corrige.
- */
-async function manualStep(command) {
-  if (wifi.busy || explo.running) return;
-  wifi.busy = true;
-  try {
-    if (!state.slam?.keyframes.length || !wifi.lastScan) await wifiScanStep(); // premier scan : il fixe le repère
-    const safe = clampToFree(command);
-    if (!safe) {
-      toast('Obstacle trop proche dans cette direction : mouvement refusé');
-      return;
-    }
-    const req = await wifiMove(safe);
-    const { r, slam, measured } = await wifiScanStep();
-    const cmp = measured ? ` · commandé ${fmtMove(req.command)}, mesuré ${fmtMeasured(req.command, measured)}` : '';
-    exploStat(`Pose ${fmtPose(r.pose)} · ${r.mode} (${Math.round(100 * r.inliers)} % sur la carte)${cmp} · ${slam.keyframes.length} scans clés · vitesses ${(100 * wifi.speeds.linear).toFixed(0)} cm/s, ${wifi.speeds.angular.toFixed(0)}°/s, latéral ${(100 * wifi.speeds.lateral).toFixed(0)} cm/s`);
-    if (r.mode === 'perdu') toast('SLAM perdu : le scan ne colle pas à la carte ; revenir en arrière ou faire de plus petits pas');
-    draw();
-  } catch (err) {
-    robotGet('/stop').catch(() => {});
-    exploStat(`Arrêt : ${err.message}`);
-    toast(err.message);
-  } finally {
-    wifi.busy = false;
-  }
-}
-
-/**
- * Sécurité du pilotage manuel : distance libre dans la direction du mouvement, d'après le dernier
- * scan (couloir de la largeur du robot) ; le mouvement est raccourci, ou refusé (null) s'il reste
- * moins de 5 cm.
+ * Sécurité : distance libre dans la direction du mouvement, d'après le dernier scan (couloir de la
+ * largeur du robot) ; le mouvement est raccourci, ou refusé (null) s'il reste moins de 5 cm.
  */
 function clampToFree(command) {
   if (command.kind === 'rotate' || !wifi.lastScan) return command;
@@ -1464,14 +1431,171 @@ function clampToFree(command) {
   return d < 0.05 ? null : { ...command, distance: Math.sign(command.distance) * d };
 }
 
-const MANUAL = {
-  avance: { kind: 'forward', distance: 0.3 },
-  recul: { kind: 'forward', distance: -0.3 },
-  gauche: { kind: 'rotate', angle: 30 },
-  droite: { kind: 'rotate', angle: -30 },
-  glisseG: { kind: 'strafe', distance: 0.3 },
-  glisseD: { kind: 'strafe', distance: -0.3 },
+// ------------------------------------------------------------------ pilotage continu (Wi-Fi)
+// Le robot roule TANT QUE la touche (ou le bouton) est maintenue : l'appli renvoie la commande
+// toutes les 150 ms, et le robot s'arrête seul 0,4 s après la dernière (touche lâchée, Wi-Fi
+// perdu). Pendant ce temps le SLAM tourne en continu (4 à 5 scans par seconde, robot en mouvement) :
+// entre deux scans le robot ne bouge que de quelques centimètres, le suivi ne décroche pas.
+// Odométrie : vitesse estimée × durée d'appui, intégrée entre deux scans ; elle s'étalonne sur des
+// segments d'au moins 15 cm ou 25° d'un même mouvement, d'après le déplacement mesuré par le SLAM.
+
+const DRIVE = {
+  avance: { route: 'forward', kind: 'forward', sign: 1 },
+  recul: { route: 'backward', kind: 'forward', sign: -1 },
+  glisseG: { route: 'left', kind: 'strafe', sign: 1 },
+  glisseD: { route: 'right', kind: 'strafe', sign: -1 },
+  gauche: { route: 'rotateleft', kind: 'rotate', sign: 1 },
+  droite: { route: 'rotateright', kind: 'rotate', sign: -1 },
 };
+const KEEPALIVE_MS = 150; // renvoi de la commande pendant l'appui
+const HOLD_MS = 400; // le robot s'arrête seul si plus rien n'arrive pendant ce temps
+const ZERO = { x: 0, y: 0, theta: 0 };
+const teleop = { running: false, active: null, since: 0, timer: null, odom: { ...ZERO }, calib: null, lost: false, rate: 0, pwm: 140 };
+
+/** Déplacement (repère du robot) d'un mouvement tenu pendant dt secondes, avec les vitesses estimées. */
+function motionDelta(mv, dt) {
+  const sp = wifi.speeds ?? robotSpeeds();
+  if (mv.kind === 'rotate') return { x: 0, y: 0, theta: mv.sign * sp.angular * dt };
+  if (mv.kind === 'strafe') return { x: 0, y: mv.sign * sp.lateral * dt, theta: 0 };
+  return { x: mv.sign * sp.linear * dt, y: 0, theta: 0 };
+}
+
+/** Ajoute à l'odométrie (et au segment d'étalonnage) le mouvement tenu depuis le dernier appel. */
+function integrateDrive(now = performance.now()) {
+  const mv = teleop.active;
+  if (mv) {
+    const dt = (now - teleop.since) / 1000;
+    teleop.odom = composePoses(teleop.odom, motionDelta(mv, dt));
+    if (teleop.calib?.kind === mv.kind) {
+      const sp = wifi.speeds ?? robotSpeeds();
+      teleop.calib.amount += mv.sign * dt * (mv.kind === 'rotate' ? sp.angular : mv.kind === 'strafe' ? sp.lateral : sp.linear);
+    }
+  }
+  teleop.since = now;
+}
+
+function sendDrive() {
+  const mv = teleop.active;
+  if (!mv) return;
+  robotGet(`/${mv.route}?time=${mv.kind === 'rotate' ? 2 * HOLD_MS : HOLD_MS}`).catch((err) => {
+    releaseDrive();
+    toast(err.message);
+  });
+}
+
+function pressDrive(id) {
+  if (teleop.active?.id === id || explo.running) return;
+  const mv = { ...DRIVE[id], id };
+  if (mv.kind !== 'rotate' && !clampToFree({ kind: mv.kind, distance: mv.sign * 0.3 })) {
+    toast('Obstacle trop proche dans cette direction');
+    return;
+  }
+  if (!teleop.running) startTeleop();
+  integrateDrive();
+  // nouveau segment d'étalonnage si le type de mouvement change
+  if (teleop.calib?.kind !== mv.kind) teleop.calib = { kind: mv.kind, amount: 0, start: state.slamLivePose ? { ...state.slamLivePose } : null };
+  clearInterval(teleop.timer);
+  teleop.active = mv;
+  teleop.since = performance.now();
+  sendDrive();
+  teleop.timer = setInterval(sendDrive, KEEPALIVE_MS);
+  for (const b of document.querySelectorAll('.drive button')) b.classList.toggle('on', b.id === `drive_${id}`);
+}
+
+function releaseDrive(id = null) {
+  if (!teleop.active || (id && teleop.active.id !== id)) return;
+  integrateDrive();
+  clearInterval(teleop.timer);
+  teleop.active = null;
+  robotGet('/stop').catch(() => {});
+  for (const b of document.querySelectorAll('.drive button')) b.classList.remove('on');
+}
+
+/** Boucle du SLAM Wi-Fi : scans en continu, odométrie des commandes, étalonnage, sécurité. */
+async function teleopLoop() {
+  let count = 0;
+  let t0 = performance.now();
+  while (teleop.running) {
+    try {
+      integrateDrive();
+      const odom = teleop.odom;
+      teleop.odom = { ...ZERO };
+      const moved = Math.hypot(odom.x, odom.y) > 0 || odom.theta !== 0;
+      wifi.odom = $('teleopOdom').checked && moved ? odom : null;
+      wifi.lastCmd = null; // l'étalonnage du pilotage continu se fait par segments, ci-dessous
+      const { r, slam } = await wifiScanStep();
+      // étalonnage sur un segment assez long d'un même mouvement, scan bien recalé
+      const cal = teleop.calib;
+      if (cal?.start && r.mode === 'suivi' && r.inliers >= 0.7 && Math.abs(cal.amount) >= (cal.kind === 'rotate' ? 25 : 0.15)) {
+        const command = cal.kind === 'rotate' ? { kind: 'rotate', angle: cal.amount } : { kind: cal.kind, distance: cal.amount };
+        const sp = updateSpeeds(robotSpeeds(), command, relative(cal.start, r.pose));
+        wifi.speeds = sp;
+        $('robotLin').value = sp.linear.toFixed(3);
+        $('robotAng').value = sp.angular.toFixed(0);
+        teleop.calib = { kind: cal.kind, amount: 0, start: { ...r.pose } };
+      } else if (cal && !cal.start) cal.start = { ...r.pose };
+      // sécurité : obstacle dans la direction du mouvement, ou SLAM perdu -> arrêt
+      const mv = teleop.active;
+      if (mv && mv.kind !== 'rotate' && !clampToFree({ kind: mv.kind, distance: mv.sign * 0.3 })) {
+        releaseDrive();
+        toast('Obstacle trop proche : robot arrêté');
+      }
+      if (r.mode === 'perdu' && !teleop.lost) {
+        releaseDrive();
+        toast('SLAM perdu : robot arrêté. Revenir doucement vers la zone connue, ou ralentir');
+      }
+      teleop.lost = r.mode === 'perdu';
+      count++;
+      const now = performance.now();
+      if (now - t0 > 2000) {
+        teleop.rate = (1000 * count) / (now - t0);
+        count = 0;
+        t0 = now;
+      }
+      exploStat(`Pose ${fmtPose(r.pose)} · ${r.mode} (${Math.round(100 * r.inliers)} % sur la carte, ${Math.round(r.time)} ms) · ${teleop.rate.toFixed(1)} scans/s · ${slam.keyframes.length} scans clés · vitesses ${(100 * wifi.speeds.linear).toFixed(0)} cm/s, ${wifi.speeds.angular.toFixed(0)}°/s, latéral ${(100 * wifi.speeds.lateral).toFixed(0)} cm/s`);
+      draw();
+    } catch (err) {
+      releaseDrive();
+      exploStat(`Arrêt : ${err.message}`);
+      toast(err.message);
+      stopTeleop();
+    }
+    await sleep(60);
+  }
+}
+
+async function startTeleop() {
+  if (teleop.running || explo.running) return;
+  teleop.running = true;
+  $('btnTeleop').textContent = 'Arrêter le SLAM Wi-Fi';
+  robotSpeeds();
+  try {
+    await robotGet(`/speed?v=${teleop.pwm}`);
+  } catch (err) {
+    toast(err.message);
+  }
+  teleopLoop();
+}
+
+function stopTeleop() {
+  releaseDrive();
+  teleop.running = false;
+  $('btnTeleop').textContent = 'Démarrer le SLAM Wi-Fi';
+}
+
+/** Curseur de vitesse : nouvelle consigne au robot ; les vitesses estimées suivent la même proportion. */
+function setDrivePwm(v) {
+  const old = teleop.pwm;
+  teleop.pwm = v;
+  $('driveSpeedVal').textContent = String(v);
+  if (wifi.speeds && old) {
+    const k = v / old;
+    wifi.speeds = { linear: wifi.speeds.linear * k, angular: wifi.speeds.angular * k, lateral: wifi.speeds.lateral * k };
+    $('robotLin').value = wifi.speeds.linear.toFixed(3);
+    $('robotAng').value = wifi.speeds.angular.toFixed(0);
+  }
+  robotGet(`/speed?v=${v}`).catch((err) => toast(err.message));
+}
 
 /**
  * Exploration avec le vrai robot : scan Wi-Fi → SLAM (avec le mouvement commandé comme
@@ -1481,6 +1605,7 @@ const MANUAL = {
 async function runExploRobot() {
   if (explo.running) return stopExplo();
   if (wifi.busy) return;
+  if (teleop.running) return toast('Arrêter d\'abord le SLAM Wi-Fi (pilotage continu)');
   Object.assign(explo, { running: true, mode: 'robot', plan: null, truth: null, scene: null });
   const explorer = new Explorer();
   let steps = 0;
@@ -1510,7 +1635,8 @@ async function runExploRobot() {
 }
 
 function stopExplo() {
-  if (explo.mode === 'robot') robotGet('/stop').catch((err) => toast(err.message));
+  releaseDrive();
+  if (explo.mode === 'robot' || teleop.running) robotGet('/stop').catch((err) => toast(err.message));
   explo.running = false;
   exploStat('Exploration arrêtée.');
 }
@@ -1716,17 +1842,25 @@ canvas.addEventListener('wheel', (ev) => {
   draw();
 }, { passive: false });
 
+const DRIVE_KEYS = { i: 'avance', k: 'recul', j: 'glisseG', l: 'glisseD', u: 'gauche', o: 'droite' };
+
+window.addEventListener('keyup', (ev) => {
+  const id = DRIVE_KEYS[ev.key.toLowerCase()];
+  if (id) releaseDrive(id);
+});
+window.addEventListener('blur', () => releaseDrive()); // fenêtre quittée : on lâche tout
+
 window.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Escape' && explo.running) {
+  if (ev.key === 'Escape' && (explo.running || teleop.active)) {
     stopExplo();
     return;
   }
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName) || $('pasteDialog').open) return;
-  // pilotage au clavier, mêmes touches que RobotControl : I/K avancer/reculer, J/L glisser, U/O tourner
-  const driveKeys = { i: 'avance', k: 'recul', j: 'glisseG', l: 'glisseD', u: 'gauche', o: 'droite' };
-  if ($('driveKeys').checked && driveKeys[ev.key.toLowerCase()]) {
+  // pilotage au clavier, mêmes touches que RobotControl : I/K avancer/reculer, J/L glisser, U/O
+  // tourner ; le robot roule tant que la touche est maintenue (les répétitions sont ignorées)
+  if ($('driveKeys').checked && DRIVE_KEYS[ev.key.toLowerCase()]) {
     ev.preventDefault();
-    manualStep(MANUAL[driveKeys[ev.key.toLowerCase()]]);
+    if (!ev.repeat) pressDrive(DRIVE_KEYS[ev.key.toLowerCase()]);
     return;
   }
   if (ev.key === ' ' && live.scan) {
@@ -1806,7 +1940,17 @@ $('btnSlamReset').onclick = resetSlam;
 $('btnExploSim').onclick = runExploSim;
 $('btnExploRobot').onclick = runExploRobot;
 $('btnExploStop').onclick = stopExplo;
-for (const [id, cmd] of Object.entries(MANUAL)) $(`drive_${id}`).onclick = () => manualStep(cmd);
+for (const id of Object.keys(DRIVE)) {
+  const b = $(`drive_${id}`);
+  b.addEventListener('pointerdown', (ev) => {
+    b.setPointerCapture(ev.pointerId);
+    pressDrive(id);
+  });
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(type, () => releaseDrive(id));
+}
+$('btnTeleop').onclick = () => (teleop.running ? stopTeleop() : startTeleop());
+$('driveSpeed').addEventListener('change', () => setDrivePwm(Number($('driveSpeed').value)));
+$('driveSpeed').addEventListener('input', () => ($('driveSpeedVal').textContent = $('driveSpeed').value));
 $('slamLive').onchange = () => {
   $('slamStat').textContent = $('slamLive').checked
     ? 'SLAM en direct : déplacer doucement le robot ; un scan clé est ajouté tous les 20 cm ou 10°.'

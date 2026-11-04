@@ -137,11 +137,14 @@ Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
   se reconstruit scan par scan (trajectoire en bleu, boucles fermées).
 - **SLAM en direct** (robot en USB, `python scripts/live.py`) : cocher la case et déplacer doucement
   le robot ; un scan clé est ajouté tous les 20 cm ou 10° et la carte grandit en temps réel.
-- **Pilotage manuel en Wi-Fi avec odométrie** : boutons (ou touches I K J L U O, comme RobotControl) qui
-  envoient un déplacement connu (30 cm, 30°), puis scan et SLAM avec ce déplacement comme prédiction ;
-  la vitesse du robot s'étalonne d'après le SLAM, et un mouvement vers un obstacle trop proche est
-  raccourci ou refusé. En USB (robot poussé à la main), l'appli affiche la pose, le dernier pas et
-  « trop vite » au-delà de 35 cm ou 15° par scan.
+- **Pilotage continu en Wi-Fi** : « Démarrer le SLAM Wi-Fi », puis maintenir une touche (I K J L U O,
+  comme RobotControl) ou un bouton : le robot roule tant qu'on appuie (commande renvoyée toutes les
+  150 ms, arrêt seul 0,4 s après la dernière). Le SLAM tourne en continu (5 à 6 scans par seconde,
+  robot en mouvement) avec, comme odométrie, la vitesse estimée × la durée d'appui, étalonnée sur
+  des segments de 15 cm ou 25°. Curseur de vitesse des moteurs (route `/speed` du programme
+  `firmware/ESP32_RobotWifi`). Arrêt automatique si un obstacle est trop proche dans la direction du
+  mouvement ou si le SLAM se perd. En USB (robot poussé à la main), l'appli affiche la pose, le
+  dernier pas et « trop vite » au-delà de 35 cm ou 15° par scan.
 - **Exploration autonome** (bonus) : **Exploration simulée** (salle de classe ou trois pièces) montre le
   robot qui part sans carte et va seul vers les frontières entre le connu et l'inconnu ; **Explorer
   avec le robot (Wi-Fi)** fait de même avec le vrai robot (programme `firmware/ESP32_RobotWifi`, Wi-Fi

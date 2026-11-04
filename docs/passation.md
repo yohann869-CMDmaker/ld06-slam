@@ -68,7 +68,7 @@ le vrai robot.
    - USB : `python scripts/live.py`, case « SLAM en direct », pousser le robot lentement au sol
      sur une boucle dans la salle ;
    - Wi-Fi : téléverser `firmware/ESP32_RobotWifi` (câblage des moteurs en tête du fichier), connecter le PC
-     au Wi-Fi `RobotESP32`, `node serve.mjs`, bouton « Explorer avec le robot (Wi-Fi) », rester à
+     au Wi-Fi `DON MIGUEL3`, `node serve.mjs`, bouton « Explorer avec le robot (Wi-Fi) », rester à
      côté (Échap = arrêt). Mesurer d'abord à peu près la vitesse du robot (cm parcourus en 1 s)
      pour remplir les champs ; ils se corrigent ensuite tout seuls.
    Puis enregistrer les scans clés, exporter la carte (grid + vectorielle), comparer à la carte

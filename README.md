@@ -148,7 +148,7 @@ Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
 - **Exploration autonome** (bonus) : **Exploration simulée** (salle de classe ou trois pièces) montre le
   robot qui part sans carte et va seul vers les frontières entre le connu et l'inconnu ; **Explorer
   avec le robot (Wi-Fi)** fait de même avec le vrai robot (programme `firmware/ESP32_RobotWifi`, Wi-Fi
-  `RobotESP32`, IP `192.168.4.1`). **Échap** ou **Arrêt** coupe les moteurs. Sans robot :
+  `DON MIGUEL3`, IP `192.168.4.1`). **Échap** ou **Arrêt** coupe les moteurs. Sans robot :
   `node scripts/mock-robot.mjs` puis IP `localhost:8090`.
 
 ## Ligne de commande

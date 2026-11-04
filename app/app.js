@@ -1356,7 +1356,7 @@ async function robotGet(path, binary = false) {
     if (!res.ok) throw new Error(`robot : ${path} → HTTP ${res.status}`);
     return binary ? await res.arrayBuffer() : await res.text();
   } catch (err) {
-    throw err.name === 'AbortError' || err instanceof TypeError ? new Error(`robot injoignable (${path}) : Wi-Fi RobotESP32 connecté ? IP ?`) : err;
+    throw err.name === 'AbortError' || err instanceof TypeError ? new Error(`robot injoignable (${path}) : Wi-Fi DON MIGUEL3 connecté ? IP ?`) : err;
   } finally {
     clearTimeout(timer);
   }

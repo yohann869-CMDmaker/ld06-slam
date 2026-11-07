@@ -120,6 +120,12 @@ Gauss-Newton pas à pas, fausse boucle). `core/` resynchronisé. Prochaines fich
 (rejouer une session réelle), segments, comparaison des méthodes, exploration ; export de la session
 du robot virtuel au format des vrais scans.
 
+**Version 0.3 (8 novembre)** : fiche 7 « Mes données » (ouvrir ses CSV ou un .zip, session
+d'exemple = `data/slam_usb_20261104` copiée dans `carto-edu/data/exemple_slam`, rejouer aux poses
+du fichier ou en relançant le SLAM avec une odométrie abîmée exprès) ; export .zip de la session du
+robot virtuel (format LD06, plus `verite.csv`) ; défi chiffré vérifié ; liens directs `#fiche`.
+Prompts pour faire dessiner les deux interfaces par Google Stitch : `docs/prompts_google_stitch.md`.
+
 - Idée : réutiliser `src/core/` et l'application web pour un outil pédagogique (visualiser pas à
   pas grid map, segments, scan matching, SLAM ; charger ses propres scans LD06 ; exercices).
 - Suite : fiches 3, 6, 7, 8, 9 (segments, comparaison des méthodes, SLAM, exploration, mes

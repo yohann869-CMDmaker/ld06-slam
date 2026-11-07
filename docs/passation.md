@@ -111,6 +111,15 @@ web avec 4 fiches (lidar → points, grid map pas à pas, ICP pas à pas, filtre
 MCL augmenté). Lancer : `node serve.mjs` dans `carto-edu`, puis http://localhost:8090/.
 Son dossier `core/` est une copie de `src/core` : la recopier après chaque changement du TP.
 
+**Version 0.2 (7 novembre)**, après une recherche des besoins des étudiants (forums Reddit,
+articles sur l'enseignement, GitHub ; `carto-edu/ETAT_DE_L_ART.md`, § 4) : fiche 0 « Par où
+commencer » (parcours cliquable, prérequis, pourquoi un SLAM échoue), fiche 5 « Robot virtuel et
+SLAM » (pilotage au clavier, lidar comme le LD06, odométrie qui glisse, odométrie seule contre
+SLAM, fermeture de boucle ; réponse au manque de robots), fiche 6 « Graphe de poses » (élastiques,
+Gauss-Newton pas à pas, fausse boucle). `core/` resynchronisé. Prochaines fiches : mes données
+(rejouer une session réelle), segments, comparaison des méthodes, exploration ; export de la session
+du robot virtuel au format des vrais scans.
+
 - Idée : réutiliser `src/core/` et l'application web pour un outil pédagogique (visualiser pas à
   pas grid map, segments, scan matching, SLAM ; charger ses propres scans LD06 ; exercices).
 - Suite : fiches 3, 6, 7, 8, 9 (segments, comparaison des méthodes, SLAM, exploration, mes

@@ -126,6 +126,16 @@ du fichier ou en relançant le SLAM avec une odométrie abîmée exprès) ; expo
 robot virtuel (format LD06, plus `verite.csv`) ; défi chiffré vérifié ; liens directs `#fiche`.
 Prompts pour faire dessiner les deux interfaces par Google Stitch : `docs/prompts_google_stitch.md`.
 
+**Nouvelle interface (8 novembre)**, d'après les maquettes Google Stitch fournies par Yohan
+(`Downloads/stitch_*.zip`) : leur HTML n'est pas repris tel quel (données inventées, Tailwind et
+polices chargés depuis Internet, aucun branchement) ; seul le système de design est appliqué dans nos
+fichiers. Labo Carto : onglets en pilule, vue 2D en carte avec coordonnées du curseur, cartes
+« État en temps réel » (tuiles de mesures, défi), « Réglages » (curseurs remplis, interrupteurs) et
+« Explication », thème clair / sombre. Appli du TP : thème « station sol » sombre par défaut (bouton
+◐ pour le clair), barre d'état en haut (liaison USB / Wi-Fi, pose, scans/s, état du SLAM :
+`updateBar()` dans `app.js`), sections repliables (`app/ui.js`), canevas inversé à l'affichage en
+sombre (les captures PNG restent claires).
+
 - Idée : réutiliser `src/core/` et l'application web pour un outil pédagogique (visualiser pas à
   pas grid map, segments, scan matching, SLAM ; charger ses propres scans LD06 ; exercices).
 - Suite : fiches 3, 6, 7, 8, 9 (segments, comparaison des méthodes, SLAM, exploration, mes

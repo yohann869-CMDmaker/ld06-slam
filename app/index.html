@@ -5,13 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>LD06 Cartographie</title>
   <link rel="stylesheet" href="style.css">
+  <script>
+    // thème (sombre par défaut, style « station sol ») choisi avant le premier affichage
+    try {
+      const t = localStorage.getItem('ld06.theme');
+      document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark';
+    } catch {
+      document.documentElement.dataset.theme = 'dark';
+    }
+  </script>
 </head>
 <body>
+  <header id="topbar">
+    <div class="brand"><span class="logo">LD</span><span><strong>LD06</strong> Cartographie</span></div>
+    <span class="pill" id="barLink" title="Liaison avec le robot"><span class="dot"></span><span>robot non connecté</span></span>
+    <span class="pill mono" id="barPose" title="Dernière pose estimée par le SLAM">pose —</span>
+    <span class="pill mono" id="barRate" title="Scans par seconde pendant le pilotage">— scans/s</span>
+    <span class="pill" id="barSlam" title="État du SLAM au dernier scan">SLAM à l'arrêt</span>
+    <span class="spacer"></span>
+    <button id="btnFit">Recadrer</button>
+    <button id="btnShot">Capture PNG</button>
+    <button id="btnFold" title="Replier ou déplier toutes les sections">Tout replier</button>
+    <button id="btnTheme" title="Thème sombre / clair" aria-label="Changer de thème">◐</button>
+  </header>
   <aside id="sidebar">
-    <header>
-      <h1>LD06 · Cartographie</h1>
-      <p class="sub">Nuages de points, grid map, carte vectorielle</p>
-    </header>
 
     <section>
       <h2>Scans</h2>
@@ -270,10 +287,6 @@
 
   <main id="stage">
     <canvas id="view"></canvas>
-    <div id="toolbar">
-      <button id="btnFit">Recadrer</button>
-      <button id="btnShot">Capture PNG</button>
-    </div>
     <div id="status"></div>
     <div id="toast" hidden></div>
     <div id="drop" hidden><div>Déposer des scans, une grid map (CSV) ou une carte vectorielle (TXT)</div></div>
@@ -293,5 +306,6 @@
   </dialog>
 
   <script type="module" src="app.js"></script>
+  <script type="module" src="ui.js"></script>
 </body>
 </html>

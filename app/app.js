@@ -1227,6 +1227,7 @@ async function slamLiveStep() {
     const r = await slam.addScan(scan, driving ? takeDriveOdom() : null, first);
     if (state.slam !== slam || !$('slamLive').checked) return; // SLAM réinitialisé ou arrêté entre-temps
     state.slamLivePose = r.pose;
+    state.slamMode = r.mode;
     if (driving) {
       afterDriveScan(r, slam);
     }
@@ -1283,7 +1284,7 @@ const liveSlam = () => new LiveSlam({ relocEvery: 5, loopFullSearch: false });
 
 function resetSlam() {
   state.slam?.terminate?.();
-  Object.assign(state, { slam: null, slamTrack: null, slamLivePose: null, slamBusy: false });
+  Object.assign(state, { slam: null, slamTrack: null, slamLivePose: null, slamBusy: false, slamMode: null });
   Object.assign(explo, { plan: null, truth: null, scene: null });
   Object.assign(wifi, { odom: null, lastCmd: null, prevPose: null });
   Object.assign(teleop, { odom: { ...ZERO }, calib: null, lost: false });
@@ -1633,6 +1634,7 @@ function afterDriveScan(r, slam) {
   // c'est l'utilisateur qui guide le robot : pas d'arrêt automatique, un simple avertissement
   if (r.mode === 'perdu' && !teleop.lost) toast('SLAM perdu : revenir doucement vers la zone connue, ou ralentir');
   teleop.lost = r.mode === 'perdu';
+  state.slamMode = r.mode;
   teleop.count++;
   const now = performance.now();
   if (now - teleop.t0 > 2000) {
@@ -1881,6 +1883,26 @@ function renderStatus() {
     }
   }
   $('status').textContent = txt;
+  updateBar();
+}
+
+/** Barre d'état du haut : liaison, pose, cadence des scans, état du SLAM. */
+function updateBar() {
+  const usb = viaUsb();
+  const relay = live.source?.readyState === 1;
+  const link = $('barLink');
+  const ok = usb ? relay : teleop.running && !teleop.lost;
+  link.className = `pill ${ok ? 'ok' : usb && live.source ? 'bad' : ''}`;
+  link.lastChild.textContent = usb
+    ? relay ? 'USB · relais live.py connecté' : live.source ? 'USB · relais injoignable' : 'USB · relais non lancé'
+    : `Wi-Fi · ${$('robotIp').value.trim()}${teleop.running ? '' : ' (à l\'arrêt)'}`;
+  const p = state.slamLivePose;
+  $('barPose').textContent = p ? `x ${p.x.toFixed(2)}  y ${p.y.toFixed(2)}  θ ${p.theta.toFixed(0)}°` : 'pose —';
+  $('barRate').textContent = teleop.running && teleop.rate ? `${teleop.rate.toFixed(1)} scans/s` : '— scans/s';
+  const mode = state.slamMode;
+  const slam = $('barSlam');
+  slam.className = `pill ${mode === 'perdu' ? 'bad' : mode === 'suivi' || mode === 'départ' ? 'ok' : mode ? 'info' : ''}`;
+  slam.textContent = mode ? `SLAM : ${mode}${state.slam ? ` · ${state.slam.keyframes.length} scans clés · ${state.slam.loops.length} boucle(s)` : ''}` : 'SLAM à l\'arrêt';
 }
 
 // ------------------------------------------------------------------ souris et clavier

@@ -136,6 +136,16 @@ fichiers. Labo Carto : onglets en pilule, vue 2D en carte avec coordonnées du c
 `updateBar()` dans `app.js`), sections repliables (`app/ui.js`), canevas inversé à l'affichage en
 sombre (les captures PNG restent claires).
 
+**Idées de ROS dans Labo Carto (9 novembre)** : Yohan ne veut pas faire utiliser ROS aux étudiants
+(trop d'installation et de vocabulaire), mais en reprendre les idées dans l'appli. Robot virtuel :
+repères TF `map → odom → base_link` dessinés (la correction map → odom), affichages à cocher comme RViz,
+« coulisses » façon ROS (nœuds, topics, fréquences comme `ros2 topic hz`, derniers messages comme
+`echo`), caméra simulée avec repères visuels numérotés façon AprilTag (pose du robot déduite d'un
+repère, vision vs lidar). Filtre particulaire : « 2D Pose Estimate » de RViz (clic + glisser).
+Graphe de poses : boucle ajoutée à la main (mode interactif de slam_toolbox). Parcours : lexique
+« dans ROS, ça s'appelle… ». `carto-edu/ros/` (installation ROS 2 + Gazebo dans WSL Ubuntu-24.04, où
+ROS 2 Jazzy est déjà installé) reste facultatif ; l'installation n'a pas été faite.
+
 - Idée : réutiliser `src/core/` et l'application web pour un outil pédagogique (visualiser pas à
   pas grid map, segments, scan matching, SLAM ; charger ses propres scans LD06 ; exercices).
 - Suite : fiches 3, 6, 7, 8, 9 (segments, comparaison des méthodes, SLAM, exploration, mes

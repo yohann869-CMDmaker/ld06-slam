@@ -151,3 +151,20 @@ ROS 2 Jazzy est déjà installé) reste facultatif ; l'installation n'a pas ét�
 - Suite : fiches 3, 6, 7, 8, 9 (segments, comparaison des méthodes, SLAM, exploration, mes
   données), exercices vérifiés automatiquement, publication (GitHub Pages) après le rendu.
 - À décider avec Yohan : public visé (ce module seulement ou plus large), nom, dépôt GitHub.
+
+## Préparation du rendu (19 novembre)
+
+- Énoncé complet copié dans `docs/enonce.md` ; chaque demande vérifiée et reliée à sa preuve dans le
+  `README.md` (« Où trouver chaque demande de l'énoncé », « Au-delà de l'énoncé »).
+- `docs/jour3.md` réécrit dans l'ordre de l'énoncé, chiffres à jour ; photos et vidéos du robot
+  (`docs/media/`, robot piloté par **câble USB**, pas la navigation autonome).
+- Bonus sur le vrai robot : exploration autonome essayée et fonctionnelle selon Yohan, **non
+  enregistrée** ; robot plus disponible. Écrit tel quel.
+- Données MapTool : `scripts/gen-maptool.mjs` exécute le code de `MapTool.html` (fonctions extraites,
+  non modifiées) → `data/maptool/` ; `scripts/test-maptool.mjs` → `docs/test_maptool.md`. Bug de
+  MapTool trouvé : un segment à 45° pile dont les extrémités sont sur des coins de cellules fait
+  boucler `rasterizeSegment` (évité dans la scène).
+- `docs/synthese.md` : partie par outil rédigée ; **partie personnelle à écrire par Yohan** (pistes
+  fournies, cadre à supprimer).
+- `scripts/livrable.ps1` fabrique le .zip (clone du dépôt avec historique + lien + synthèse +
+  LISEZMOI). Le dossier non suivi `ld06-slam/ld06-slam/` (clone vide) n'y entre pas.

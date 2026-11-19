@@ -1,12 +1,83 @@
 # LD06 SLAM — Cartographie et localisation 2D
 
-Projet du module *Cartographie et localisation appliquée à la robotique mobile*.
-Outils pour exploiter les scans du lidar LD06 : affichage de nuages de points,
-grid map, carte vectorielle, puis (jours 2 et 3) scan matching et SLAM.
+Projet du module *Cartographie et localisation appliquée à la robotique mobile* (Yohan Zoungrana,
+novembre 2026). Outils pour exploiter les scans du lidar LD06 d'un robot Mecanum à ESP32 :
+nuages de points, grid map, carte vectorielle, localisation (scan matching), SLAM et carte de la
+salle de classe, exploration autonome en bonus. Énoncé : [docs/enonce.md](docs/enonce.md).
 
-**Pour reprendre le projet : [docs/passation.md](docs/passation.md)** (ce qui est fait, ce qui reste).
+| Le robot | La carte de la salle faite par notre SLAM, sur la carte de référence |
+| --- | --- |
+| ![Robot Mecanum, LD06 et ESP32](docs/media/robot_dessus.jpg) | ![Carte finale de la salle](docs/img/slam_usb_20261104_finale_superposition.png) |
 
-Comptes rendus : [jour 1](docs/jour1.md), [jour 2](docs/jour2.md) ([banc d'essai](docs/jour2_benchmark.md), [localisation globale](docs/jour2_global.md), [données réelles](docs/jour2_reel.md)), [journal des erreurs et corrections](docs/journal.md), [jour 3 : SLAM](docs/jour3.md) ([banc d'essai](docs/jour3_slam.md)), [exploration autonome](docs/jour3_explore.md), [a priori de position](docs/jour3_apriori.md), [algorithmes expliqués](docs/algorithmes.md), [état de l'art](docs/etat_de_l_art.md).
+Vidéos du robot piloté par câble pendant le SLAM en direct : [vidéo 1](docs/media/robot_video.mp4),
+[vidéo 2](docs/media/robot_video_2.mp4).
+
+## Tester en 5 minutes
+
+Node.js 22 ou plus, aucune dépendance. Dans ce dossier :
+
+```bash
+node serve.mjs
+```
+
+Ouvrir http://localhost:8080/ (Chrome ou Edge), puis, dans la barre latérale :
+
+| Pour voir | Faire |
+| --- | --- |
+| Nuages de points, une couleur par scan, pose modifiable | **Scans → Scans de la salle** ; cliquer un scan, glisser pour le déplacer, Maj + glisser pour le tourner |
+| Grid map et carte vectorielle | **Grid map → Tous les scans visibles**, **Carte vectorielle → Tous les scans visibles** ; « Vue propre » dans **Affichage** |
+| Localisation sur les trois références | **Carte de référence → Charger la carte de la salle**, sélectionner un scan, **Localisation → Localiser le scan sélectionné** ou **Comparer les méthodes** |
+| Localisation sans pose de départ | **Localisation → Localisation globale (pose inconnue)** |
+| SLAM | **Scans → Trajet simulé**, puis **SLAM → SLAM sur les scans visibles** |
+| Bonus : robot autonome (simulé) | **Robot → Exploration simulée** |
+
+Tests automatiques (128) : `node --test "test/*.test.js"`. Tous les chiffres des comptes rendus se
+régénèrent avec les scripts listés plus bas (section « Ligne de commande »).
+
+## Où trouver chaque demande de l'énoncé
+
+| Énoncé | Où c'est fait | Où c'est expliqué et mesuré |
+| --- | --- | --- |
+| **Jour 1.1** Extraire ses propres scans réels (polaire) | `firmware/`, `scripts/capture.py`, `scripts/live.py` ; scans dans `data/real/` (carte) et `data/test/` (jeu indépendant) | [jour1.md § 1](docs/jour1.md) |
+| **1.2** Afficher plusieurs scans, couleurs distinctes, pose de chaque scan modifiable | Application (`app/`) | [jour1.md § 2](docs/jour1.md) |
+| **1.3** Grid map : scan + pose → carte ; carte + scan + pose → mise à jour (cellules traversées et d'impact) ; démarche, hypothèses, difficultés, limites | `src/core/gridmap.js` ; boutons « Scan sélectionné → carte », « Mettre à jour la carte » ; `scripts/build-maps.mjs --grid` | [jour1.md § 3](docs/jour1.md), [algorithmes.md § 2](docs/algorithmes.md) |
+| **1.4** Segments : nuage → segments, angle, « proches », fusion, intersection, découpage (cas limites et tolérance) | `src/core/segmentation.js`, `src/core/geometry.js` | [jour1.md § 4](docs/jour1.md) ; cas limites testés dans `test/geometry.test.js` |
+| **1.5** Carte vectorielle, étapes du document de cours | `src/core/vectormap.js` | [jour1.md § 5](docs/jour1.md) |
+| Propriétés en plus (durée de vie, filtrages, pondérations) | Décroissance des cellules, cellules isolées, poids des segments, cartes propres | [jour1.md § 3, 5, 6](docs/jour1.md) |
+| **Jour 2.1** Localisation sur grid map | `src/core/localization.js` (force brute, gradient, multi-résolution, probabiliste, ICP…) | [jour2.md](docs/jour2.md), [banc d'essai](docs/jour2_benchmark.md) |
+| **2.2** Localisation sur carte vectorielle | idem, plus calcul direct | idem |
+| **2.3** Localisation entre scans | idem | idem |
+| Comparaison : mêmes scans, mêmes poses initiales ; erreur (m, °), temps, taux de réussite, seuils explicités ; sensibilité à l'initialisation | `scripts/benchmark-jour2.mjs`, `scripts/benchmark-reel.mjs` | [jour2_benchmark.md](docs/jour2_benchmark.md) (simulation, pose connue), [jour2_reel.md](docs/jour2_reel.md) (réel) |
+| Incertitude des références mesurées sur le robot | `scripts/benchmark-reel.mjs` | [jour2_reel.md](docs/jour2_reel.md) (± 2,0 cm, 0,28° en médiane) |
+| **Jour 3** SLAM (localisation + cartographie simultanées) | `src/core/slam.js`, `src/core/posegraph.js` | [jour3.md § 1, 2](docs/jour3.md), [banc d'essai](docs/jour3_slam.md) |
+| Carte complète de la salle de classe | Séance avec le vrai robot : `data/slam_usb_20261104/` ; carte de référence : `data/reference/` | [jour3.md § 3](docs/jour3.md), [rapport_slam_reel.md](docs/rapport_slam_reel.md) |
+| Objectif final : localiser le robot dans cette carte | `src/core/globalloc.js` | [jour3.md § 4](docs/jour3.md), [jour2.md](docs/jour2.md) |
+| **Bonus** déplacer le robot automatiquement | `src/core/explore.js`, `firmware/ESP32_RobotWifi` | [jour3.md § 5](docs/jour3.md), [jour3_explore.md](docs/jour3_explore.md) |
+| **Livrable** dépôt Git avec historique | https://github.com/yohann869-CMDmaker/ld06-slam | commits réguliers depuis le 2 novembre |
+| Outils et instructions pour les tester | ce README | sections ci-dessous |
+| Synthèse personnelle (par outil, puis ce que je retiens du module) | — | [docs/synthese.md](docs/synthese.md) |
+| **Remarques** tester sur données réelles et sur données MapTool | `data/real/`, `data/test/` ; `data/maptool/` (générées par le code de MapTool) | [jour2_reel.md](docs/jour2_reel.md), [test_maptool.md](docs/test_maptool.md) |
+| Piloter le robot sans fil, données en temps réel | `firmware/ESP32_RobotWifi` (routes de RobotControl), `firmware/ESP32_RobotUSB` | [jour3.md § 3.2, 5](docs/jour3.md) |
+
+## Au-delà de l'énoncé, et ce que chaque ajout apporte
+
+| Ajout | Ce qu'il fait | Pourquoi |
+| --- | --- | --- |
+| Trois méthodes de l'état de l'art : PL-ICP (Censi 2008), NDT (Biber 2003), Gauss-Newton sur la carte (Hector 2011) | Recalent un scan avec d'autres modèles d'erreur (point-droite, gaussiennes, gradient de la carte) | Comparer nos méthodes à celles des articles ; le Gauss-Newton réussit 100 % en 1 à 2 ms et accélère le SLAM 4 à 7 fois ([jour2.md](docs/jour2.md), [état de l'art](docs/etat_de_l_art.md)) |
+| Localisation globale avec verdict « fiable » / « ambiguë » | Retrouve le robot dans toute la salle sans pose de départ et dit si la réponse est sûre | La salle est presque symétrique : une réponse fausse doit se signaler ([jour2_global.md](docs/jour2_global.md)) |
+| A priori de position | Utilise la pose approximative notée à la main | Lève l'ambiguïté : 17/18 → 18/18 ([jour3_apriori.md](docs/jour3_apriori.md)) |
+| Graphe de poses avec précision par direction, et graphe hors ligne (Lu & Milios 1997) | Corrige la dérive le long des couloirs ; recale des clichés épars tous ensemble | Erreur médiane 8,5 → 4,2 cm sur les clichés réels ([jour3.md § 3.1](docs/jour3.md)) |
+| SLAM en direct, pilotage continu (câble ou Wi-Fi), calcul dans un fil séparé, suivi robuste aux mouvements rapides | Construit la carte pendant que le robot roule, sans figer la page | Le premier essai par pas de 30 cm se perdait ; la séance réelle de 57 m a réussi ([jour3.md § 6](docs/jour3.md)) |
+| Programmes du robot adaptés à notre câblage (`firmware/ESP32_RobotWifi`, `ESP32_RobotUSB`) | Commandent les moteurs directement par l'ESP32 | Notre robot n'a pas la carte I2C du programme fourni : les roues tournaient seules ([README, Wi-Fi](#programme-du-robot-en-wi-fi-firmwareesp32_robotwifi)) |
+| Filtrage et reconstruction du plan (`src/core/reconstruct.js`) | Retire chaises et personnes, complète les murs cachés, redessine un plan propre | Carte finale à 2,8 cm (murs vus) et 3,9 cm (murs reconstruits) de la référence ([rapport_slam_reel.md](docs/rapport_slam_reel.md)) |
+| Cartes propres « style MapTool », étiquettes (table, armoire, tableau), export ROS (PGM + YAML) | Plan lisible, meubles nommés, carte ouvrable dans ROS / RViz | Rendre les cartes utilisables au-delà de l'application |
+| Faux robot Wi-Fi (`scripts/mock-robot.mjs`) | Imite les routes HTTP du robot dans une scène simulée | Tester le pilotage et l'exploration sans le robot |
+| Interface « station sol » (thème sombre, barre d'état, sections repliables) | Montre la liaison, la pose, la cadence et l'état du SLAM | Savoir d'un coup d'œil si le robot est suivi pendant une séance |
+| Application d'apprentissage *Labo Carto* (dossier voisin `carto-edu`, hors livrable) | Fiches interactives pour apprendre la cartographie et le SLAM, robot virtuel | Prolongement personnel : aider d'autres étudiants qui n'ont pas de robot |
+
+Autres documents : [algorithmes expliqués](docs/algorithmes.md), [journal des erreurs et
+corrections](docs/journal.md), [état de l'art](docs/etat_de_l_art.md), notes de suivi du projet
+([docs/passation.md](docs/passation.md)).
 
 ## Prérequis
 
@@ -155,7 +226,7 @@ Le programme peut aussi être piloté depuis le moniteur série (115200 bauds) :
   se reconstruit scan par scan (trajectoire en bleu, boucles fermées).
 - **SLAM en direct** (robot en USB, `python scripts/live.py`) : cocher la case et déplacer doucement
   le robot ; un scan clé est ajouté tous les 20 cm ou 10° et la carte grandit en temps réel.
-- **Pilotage continu en Wi-Fi** : « Démarrer le SLAM Wi-Fi », puis maintenir une touche (I K J L U O,
+- **Pilotage continu (câble USB ou Wi-Fi)** : section Robot, « Démarrer le SLAM » (la liaison qui répond est choisie seule), puis maintenir une touche (I K J L U O,
   comme RobotControl) ou un bouton : le robot roule tant qu'on appuie (commande renvoyée toutes les
   150 ms, arrêt seul 0,4 s après la dernière). Le SLAM tourne en continu (5 à 6 scans par seconde,
   robot en mouvement) avec, comme odométrie, la vitesse estimée × la durée d'appui, étalonnée sur
@@ -195,6 +266,9 @@ Autres scripts :
 | `node scripts/benchmark-reel.mjs` | Banc d'essai sur données réelles : scans de la carte (sans eux) et jeu de test `data/test` (`docs/jour2_reel.md`) |
 | `node scripts/build-reference.mjs` | Carte de référence de la salle à partir de `data/real/` (`data/reference/`) |
 | `node scripts/import-lidarscope.mjs <export>` | Importe un export LidarScope dans `data/real/` (un seul tour par scan, changement de repère) |
+| `node scripts/gen-maptool.mjs` | Scans, grille et carte vectorielle générés par le code de MapTool (`data/maptool/`) |
+| `node scripts/test-maptool.mjs` | Nos outils (cartes du jour 1, localisation du jour 2) testés sur les données MapTool (`docs/test_maptool.md`) |
+| `node scripts/analyse-slam.mjs <dossier> --nom <nom>` | Séance de SLAM réelle : comparaison à la référence, filtres, reconstruction, figures (`docs/<nom>.md`) |
 
 ## Tests
 

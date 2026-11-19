@@ -49,7 +49,7 @@ normales des points du scan (information de l'ICP point-droite). Dans un couloir
 sont en travers : le lien est précis en travers et imprécis le long. L'optimisation sait alors que
 c'est le long des couloirs que la dérive s'est accumulée.
 
-Les algorithmes sont détaillés dans [algorithmes.md](algorithmes.md) (§ 12 à 17).
+Les algorithmes sont détaillés dans [algorithmes.md](algorithmes.md) (§ 13 à 17).
 
 ## 2. Validation en simulation (pose vraie connue)
 
@@ -116,6 +116,13 @@ même hauteur. D'où la séance suivante, avec le robot piloté en continu.
 
 Le robot roule au sol, piloté au clavier par le câble USB (`firmware/ESP32_RobotUSB`,
 `scripts/live.py`), et le SLAM tourne **en direct** dans l'application, 5 à 6 scans par seconde.
+
+| Le robot : Mecanum, lidar LD06, ESP32 | De profil |
+| --- | --- |
+| ![Robot vu de dessus](media/robot_dessus.jpg) | ![Robot de profil](media/robot_profil.jpg) |
+
+Vidéos du robot piloté par le câble USB pendant le SLAM, avec l'écran de l'application :
+[vidéo 1](media/robot_video.mp4), [vidéo 2](media/robot_video_2.mp4).
 
 | Mesure | Valeur |
 | --- | --- |

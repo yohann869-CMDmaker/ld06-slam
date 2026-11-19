@@ -50,7 +50,13 @@ ld06-slam/README.md : démarrage en 5 minutes, tableau « chaque demande de l'é
 ajouts au-delà de l'énoncé, programmes du robot, scripts qui régénèrent tous les chiffres.
 "@
 
-Compress-Archive -Path (Join-Path $work '*') -DestinationPath $zip
+# ZipFile plutôt que Compress-Archive : Compress-Archive saute les dossiers cachés, donc .git (l'historique)
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::CreateFromDirectory($work, $zip, [IO.Compression.CompressionLevel]::Optimal, $false)
+$hasGit = [IO.Compression.ZipFile]::OpenRead($zip)
+$ok = [bool]($hasGit.Entries | Where-Object { $_.FullName -like 'ld06-slam/.git/*' -or $_.FullName -like 'ld06-slam\.git\*' } | Select-Object -First 1)
+$hasGit.Dispose()
+if (-not $ok) { throw "Le zip ne contient pas ld06-slam/.git : historique manquant" }
 $mo = [math]::Round((Get-Item $zip).Length / 1MB, 1)
 $commits = git -C $repo rev-list --count HEAD
 Write-Host "Livrable : $zip ($mo Mo, $commits commits dans l'historique)"

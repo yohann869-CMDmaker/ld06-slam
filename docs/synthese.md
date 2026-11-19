@@ -140,22 +140,21 @@ antihoraires).
 
 ## 9. Ce que je retiens du module
 
+> **À écrire par toi, avec tes mots.** C'est la partie « conclusion personnelle » du livrable : elle
+> doit venir de toi. Les pistes ci-dessous ne sont que des rappels de ce qu'on a vécu ; garde celles
+> qui sont vraies pour toi, reformule-les, ajoute les tiennes, puis supprime ce cadre.
+
 ### Ce que j'ai apprécié
 
-J'ai bien aimé ce cours. Il était entraînant, et nous avions la chance de travailler sur de vrais
-robots : cela change de la théorie seule. J'ai apprécié les explications du cours (grid map, carte
-vectorielle, localisation) et le fait de pouvoir les appliquer directement, jusqu'au SLAM et à la
-navigation du robot.
+*(Pistes : voir le robot réel construire la carte de la salle en direct ; comparer les méthodes avec
+des chiffres plutôt qu'à l'œil ; comprendre pourquoi une salle symétrique trompe la localisation ;
+retrouver dans des articles de recherche des méthodes qu'on pouvait ensuite tester soi-même.)*
 
 ### Ce que j'ai moins apprécié
 
-Le principal problème ne venait pas du cours lui-même : il n'y avait pas assez de robots pour tout le
-monde, et nous étions souvent obligés d'attendre pour faire nos essais.
-
-J'ai aussi rencontré des difficultés pendant les essais. Le robot perdait souvent le suivi du SLAM,
-surtout pendant les rotations, et quand j'avançais trop vite : les scans n'arrivaient pas assez vite
-pour suivre le mouvement. En reprenant une rotation plus doucement, le robot retrouvait sa position
-sur la carte, et le SLAM fonctionnait bien de cette façon.
+*(Pistes : le temps perdu sur le matériel — câblage différent du programme fourni, ports COM, roues
+qui tournaient seules ; le peu de robots disponibles en salle ; le programme de test qui perdait des
+trames ; la salle encombrée de chaises et de monde pendant les mesures.)*
 
 ### Ce que j'améliorerais
 
